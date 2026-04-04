@@ -26,7 +26,7 @@ export default function Dashboard() {
       try {
         // Fetch Negociacoes
         let qNegociacoes = query(collection(db, 'negociacoes'));
-        if (appUser.tipo_usuario === 'COBRADOR') {
+        if (appUser.role === 'COBRADOR') {
           qNegociacoes = query(collection(db, 'negociacoes'), where('cobrador_id', '==', appUser.id));
         }
         const negSnapshot = await getDocs(qNegociacoes);
@@ -67,7 +67,7 @@ export default function Dashboard() {
         tomorrow.setDate(tomorrow.getDate() + 1);
 
         let qAgendamentos = query(collection(db, 'agendamentos'));
-        if (appUser.tipo_usuario === 'COBRADOR') {
+        if (appUser.role === 'COBRADOR') {
           qAgendamentos = query(collection(db, 'agendamentos'), where('cobrador_id', '==', appUser.id));
         }
         const agendSnapshot = await getDocs(qAgendamentos);

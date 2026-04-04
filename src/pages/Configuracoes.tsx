@@ -59,7 +59,7 @@ export default function Configuracoes() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Conta</label>
               <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-gray-700">
-                {appUser?.tipo_usuario}
+                {appUser?.role}
               </div>
             </div>
 
@@ -79,7 +79,7 @@ export default function Configuracoes() {
         </CardContent>
       </Card>
 
-      {appUser?.tipo_usuario === 'MASTER' && (
+      {appUser?.role === 'MASTER' && (
         <Card>
           <CardHeader>
             <CardTitle>Configurações Globais (Master)</CardTitle>

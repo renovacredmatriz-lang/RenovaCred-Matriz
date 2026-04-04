@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, onSnapshot, addDoc, updateDoc, doc, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, query, orderBy, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { Plus, CheckCircle, Printer, X } from 'lucide-react';
+import { Plus, CheckCircle, Printer, X, Trash2 } from 'lucide-react';
+import { logAction } from '../utils/auditLogger';
 
 interface Agendamento {
   id: string;
@@ -61,7 +62,7 @@ export default function Agendamentos() {
     if (!cliente) return;
 
     try {
-      await addDoc(collection(db, 'agendamentos'), {
+      const docRef = await addDoc(collection(db, 'agendamentos'), {
         cliente_id: cliente.id,
         empresa_id: cliente.empresa_id,
         cobrador_id: appUser.id,
@@ -70,6 +71,7 @@ export default function Agendamentos() {
         status: 'PENDENTE',
         createdAt: new Date().toISOString()
       });
+      logAction(appUser, 'CRIAR_AGENDAMENTO', 'agendamento', docRef.id, formData);
       setIsModalOpen(false);
       setFormData({ cliente_id: '', data_agendamento: '', observacoes: '' });
     } catch (error) {
@@ -81,9 +83,26 @@ export default function Agendamentos() {
   const handleConcluir = async (id: string) => {
     try {
       await updateDoc(doc(db, 'agendamentos', id), { status: 'CONCLUIDO' });
+      logAction(appUser, 'CONCLUIR_AGENDAMENTO', 'agendamento', id, {});
     } catch (error) {
       console.error("Error updating agendamento:", error);
       alert("Erro ao concluir agendamento.");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (appUser?.role !== 'MASTER') {
+      alert("Apenas administradores podem excluir agendamentos.");
+      return;
+    }
+    if (window.confirm('Tem certeza que deseja excluir este agendamento?')) {
+      try {
+        await deleteDoc(doc(db, 'agendamentos', id));
+        logAction(appUser, 'EXCLUIR_AGENDAMENTO', 'agendamento', id, {});
+      } catch (error) {
+        console.error("Error deleting agendamento:", error);
+        alert("Erro ao excluir agendamento.");
+      }
     }
   };
 
@@ -149,15 +168,26 @@ export default function Agendamentos() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium print:hidden">
-                    {agendamento.status === 'PENDENTE' && (
-                      <button 
-                        onClick={() => handleConcluir(agendamento.id)}
-                        className="text-green-600 hover:text-green-900 flex items-center justify-end w-full"
-                      >
-                        <CheckCircle className="w-5 h-5 mr-1" />
-                        Concluir
-                      </button>
-                    )}
+                    <div className="flex justify-end space-x-2">
+                      {agendamento.status === 'PENDENTE' && (
+                        <button 
+                          onClick={() => handleConcluir(agendamento.id)}
+                          className="text-green-600 hover:text-green-900 flex items-center"
+                          title="Concluir"
+                        >
+                          <CheckCircle className="w-5 h-5" />
+                        </button>
+                      )}
+                      {appUser?.role === 'MASTER' && (
+                        <button 
+                          onClick={() => handleDelete(agendamento.id)}
+                          className="text-red-600 hover:text-red-900 flex items-center"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -15,13 +15,13 @@ service cloud.firestore {
     
     function isMaster() {
       return isAuthenticated() && (
-        getUserData().tipo_usuario == 'MASTER' || 
+        getUserData().role == 'MASTER' || 
         (request.auth.token.email == "renovacredmatriz@gmail.com" && request.auth.token.email_verified == true)
       );
     }
     
     function isCobrador() {
-      return isAuthenticated() && getUserData().tipo_usuario == 'COBRADOR';
+      return isAuthenticated() && getUserData().role == 'COBRADOR';
     }
     
     function isOwner(userId) {
@@ -34,9 +34,14 @@ service cloud.firestore {
     
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isMaster();
-      allow update: if isMaster() || (isOwner(userId) && request.resource.data.tipo_usuario == resource.data.tipo_usuario);
+      allow create: if isMaster() || (isOwner(userId) && request.resource.data.role == 'COBRADOR');
+      allow update: if isMaster() || (isOwner(userId) && request.resource.data.role == resource.data.role);
       allow delete: if isMaster();
+    }
+    
+    match /cobradores/{cobradorId} {
+      allow read: if isAuthenticated();
+      allow update: if isAuthenticated();
     }
     
     match /empresas/{empresaId} {

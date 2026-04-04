@@ -99,7 +99,7 @@ export default function Parcelas() {
   };
 
   const filteredParcelas = parcelas.filter(p => {
-    if (appUser?.tipo_usuario === 'COBRADOR') {
+    if (appUser?.role === 'COBRADOR') {
       const neg = negociacoes.find(n => n.id === p.negociacao_id);
       return neg?.cobrador_id === appUser.id;
     }

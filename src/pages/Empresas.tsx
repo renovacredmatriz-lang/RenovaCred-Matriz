@@ -22,7 +22,7 @@ export default function Empresas() {
   const [formData, setFormData] = useState({ nome: '', ativo: true });
 
   useEffect(() => {
-    if (appUser?.tipo_usuario !== 'MASTER') return;
+    if (appUser?.role !== 'MASTER') return;
 
     const q = query(collection(db, 'empresas'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -67,7 +67,7 @@ export default function Empresas() {
     }
   };
 
-  if (appUser?.tipo_usuario !== 'MASTER') {
+  if (appUser?.role !== 'MASTER') {
     return <div>Acesso negado. Apenas MASTER pode acessar esta página.</div>;
   }
 

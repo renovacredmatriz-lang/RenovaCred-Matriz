@@ -6,6 +6,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Plus, X, RotateCcw } from 'lucide-react';
+import { logAction } from '../utils/auditLogger';
 
 interface Negociacao {
   id: string;
@@ -62,7 +63,7 @@ export default function Negociacoes() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!appUser || appUser.tipo_usuario !== 'COBRADOR') {
+    if (!appUser || appUser.role !== 'COBRADOR') {
       alert("Apenas cobradores podem registrar negociações.");
       return;
     }
@@ -71,7 +72,7 @@ export default function Negociacoes() {
     if (!cliente) return;
 
     try {
-      await runTransaction(db, async (transaction) => {
+      const negociacaoId = await runTransaction(db, async (transaction) => {
         const clienteRef = doc(db, 'clientes', cliente.id);
         const clienteDoc = await transaction.get(clienteRef);
         
@@ -130,17 +131,6 @@ export default function Negociacoes() {
           });
         }
 
-        // Create Log
-        const logRef = doc(collection(db, 'logs'));
-        transaction.set(logRef, {
-          entidade: 'negociacao',
-          entidade_id: newNegociacaoRef.id,
-          acao: 'criacao',
-          usuario_id: appUser.id,
-          data: new Date().toISOString(),
-          detalhes: `Criou negociação tipo ${formData.tipo} valor ${valorTotalNegociado}`
-        });
-
         // If it's a parcelamento, we should also create the parcelas
         if (formData.tipo === 'PARCELAMENTO' && formData.numero_parcelas > 0) {
           const valorRestante = valorTotalNegociado - formData.valor_entrada;
@@ -160,6 +150,14 @@ export default function Negociacoes() {
             });
           }
         }
+        
+        return newNegociacaoRef.id;
+      });
+
+      logAction(appUser, 'CRIAR_NEGOCIACAO', 'negociacao', negociacaoId, {
+        tipo: formData.tipo,
+        valor: formData.valor,
+        cliente_id: cliente.id
       });
 
       setIsModalOpen(false);
@@ -172,7 +170,7 @@ export default function Negociacoes() {
   };
 
   const handleEstorno = async (negociacao: Negociacao) => {
-    if (!appUser || appUser.tipo_usuario !== 'COBRADOR') return;
+    if (!appUser || appUser.role !== 'COBRADOR') return;
     if (negociacao.status === 'ESTORNADO') return;
     
     if (!window.confirm("Tem certeza que deseja estornar esta negociação? O saldo do cliente será revertido.")) {
@@ -220,17 +218,11 @@ export default function Negociacoes() {
             cobrador_id: appUser.id
           });
         }
+      });
 
-        // Create Log
-        const logRef = doc(collection(db, 'logs'));
-        transaction.set(logRef, {
-          entidade: 'negociacao',
-          entidade_id: negociacao.id,
-          acao: 'estorno',
-          usuario_id: appUser.id,
-          data: new Date().toISOString(),
-          detalhes: `Estornou negociação tipo ${negociacao.tipo}`
-        });
+      logAction(appUser, 'ESTORNAR_NEGOCIACAO', 'negociacao', negociacao.id, {
+        tipo: negociacao.tipo,
+        valor: negociacao.valor
       });
 
       alert("Negociação estornada com sucesso!");
@@ -260,7 +252,7 @@ export default function Negociacoes() {
           <h1 className="text-2xl font-semibold text-gray-900">Negociações</h1>
           <p className="mt-1 text-sm text-gray-500">Histórico e registro de negociações.</p>
         </div>
-        {appUser?.tipo_usuario === 'COBRADOR' && (
+        {appUser?.role === 'COBRADOR' && (
           <Button onClick={() => setIsModalOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Nova Negociação
@@ -318,7 +310,7 @@ export default function Negociacoes() {
                     {neg.numero_parcelas || '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    {appUser?.tipo_usuario === 'COBRADOR' && neg.status !== 'ESTORNADO' && (
+                    {appUser?.role === 'COBRADOR' && neg.status !== 'ESTORNADO' && (
                       <Button variant="danger" size="sm" onClick={() => handleEstorno(neg)} title="Estornar Negociação">
                         <RotateCcw className="w-4 h-4" />
                       </Button>

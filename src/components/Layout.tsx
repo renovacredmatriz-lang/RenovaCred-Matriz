@@ -40,7 +40,7 @@ export default function Layout() {
     { path: '/configuracoes', label: 'Configurações', icon: Settings, roles: ['MASTER', 'COBRADOR'] },
   ];
 
-  const filteredNav = navItems.filter(item => appUser && item.roles.includes(appUser.tipo_usuario));
+  const filteredNav = navItems.filter(item => appUser && item.roles.includes(appUser.role));
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -75,7 +75,7 @@ export default function Layout() {
             )}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 truncate">{appUser?.nome}</p>
-              <p className="text-xs text-gray-500 truncate">{appUser?.tipo_usuario}</p>
+              <p className="text-xs text-gray-500 truncate">{appUser?.role}</p>
             </div>
           </div>
 

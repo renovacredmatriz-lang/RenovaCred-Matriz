@@ -11,7 +11,7 @@ interface Cobrador {
   id: string;
   nome: string;
   email: string;
-  tipo_usuario: 'MASTER' | 'COBRADOR';
+  role: 'MASTER' | 'COBRADOR';
   ativo: boolean;
   comissao_percentual?: number;
   createdAt: string;
@@ -30,9 +30,9 @@ export default function Cobradores() {
   });
 
   useEffect(() => {
-    if (appUser?.tipo_usuario !== 'MASTER') return;
+    if (appUser?.role !== 'MASTER') return;
 
-    const q = query(collection(db, 'users'), where('tipo_usuario', '==', 'COBRADOR'));
+    const q = query(collection(db, 'users'), where('role', '==', 'COBRADOR'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cobrador));
       setCobradores(data);
@@ -54,7 +54,7 @@ export default function Cobradores() {
       } else {
         await addDoc(collection(db, 'users'), {
           ...formData,
-          tipo_usuario: 'COBRADOR',
+          role: 'COBRADOR',
           createdAt: new Date().toISOString()
         });
       }
@@ -78,7 +78,7 @@ export default function Cobradores() {
     }
   };
 
-  if (appUser?.tipo_usuario !== 'MASTER') {
+  if (appUser?.role !== 'MASTER') {
     return <div>Acesso negado.</div>;
   }
 

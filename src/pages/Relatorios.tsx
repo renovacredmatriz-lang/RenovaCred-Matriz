@@ -45,7 +45,7 @@ export default function Relatorios() {
       setEmpresas(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome })));
     });
     const unsubCobradores = onSnapshot(collection(db, 'users'), (snapshot) => {
-      setCobradores(snapshot.docs.filter(doc => doc.data().tipo_usuario === 'COBRADOR').map(doc => ({ 
+      setCobradores(snapshot.docs.filter(doc => doc.data().role === 'COBRADOR').map(doc => ({ 
         id: doc.id, 
         nome: doc.data().nome,
         comissao_percentual: doc.data().comissao_percentual || 0
@@ -84,7 +84,7 @@ export default function Relatorios() {
     }
     
     // Se for cobrador, só vê as próprias
-    if (appUser?.tipo_usuario === 'COBRADOR' && mov.cobrador_id !== appUser.id) return false;
+    if (appUser?.role === 'COBRADOR' && mov.cobrador_id !== appUser.id) return false;
 
     // Apenas pagamentos e estornos geram comissão (positiva ou negativa)
     if (mov.tipo !== 'PAGAMENTO' && mov.tipo !== 'ESTORNO') return false;
@@ -170,7 +170,7 @@ export default function Relatorios() {
               {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </select>
           </div>
-          {appUser?.tipo_usuario === 'MASTER' && (
+          {appUser?.role === 'MASTER' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Cobrador</label>
               <select

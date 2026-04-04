@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Plus, Edit2, Trash2, X, History } from 'lucide-react';
 import { ClienteHistoricoModal } from '../components/ClienteHistoricoModal';
+import { logAction } from '../utils/auditLogger';
 
 interface Cliente {
   id: string;
@@ -81,11 +82,13 @@ export default function Clientes() {
 
       if (editingCliente) {
         await updateDoc(doc(db, 'clientes', editingCliente.id), formData);
+        logAction(appUser, 'EDITAR_CLIENTE', 'cliente', editingCliente.id, formData);
       } else {
-        await addDoc(collection(db, 'clientes'), {
+        const docRef = await addDoc(collection(db, 'clientes'), {
           ...formData,
           createdAt: new Date().toISOString()
         });
+        logAction(appUser, 'CRIAR_CLIENTE', 'cliente', docRef.id, formData);
       }
       setIsModalOpen(false);
       setEditingCliente(null);
@@ -97,13 +100,14 @@ export default function Clientes() {
   };
 
   const handleDelete = async (id: string) => {
-    if (appUser?.tipo_usuario !== 'MASTER') {
+    if (appUser?.role !== 'MASTER') {
       alert("Apenas administradores podem excluir clientes.");
       return;
     }
     if (window.confirm('Tem certeza que deseja excluir este cliente?')) {
       try {
         await deleteDoc(doc(db, 'clientes', id));
+        logAction(appUser, 'EXCLUIR_CLIENTE', 'cliente', id, {});
       } catch (error) {
         console.error("Error deleting cliente:", error);
         alert("Erro ao excluir cliente.");
@@ -197,7 +201,7 @@ export default function Clientes() {
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
-                    {appUser?.tipo_usuario === 'MASTER' && (
+                    {appUser?.role === 'MASTER' && (
                       <button 
                         onClick={() => handleDelete(cliente.id)}
                         className="text-red-600 hover:text-red-900"

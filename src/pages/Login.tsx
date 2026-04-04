@@ -65,8 +65,8 @@ export default function Login() {
       <div className="hidden lg:block relative w-0 flex-1">
         <img
           className="absolute inset-0 h-full w-full object-cover"
-          src="https://i.postimg.cc/bJktGPp1/Negociando-com-confianca-e-facilidade.png"
-          alt="Negociando com confiança e facilidade"
+          src="https://i.postimg.cc/tJK58bpq/renovacred-1024.png"
+          alt="RenovaCred"
           referrerPolicy="no-referrer"
         />
         <div className="absolute inset-0 bg-black/40" />
