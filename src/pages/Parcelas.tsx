@@ -10,6 +10,7 @@ import { CheckCircle } from 'lucide-react';
 interface Parcela {
   id: string;
   negociacao_id: string;
+  empresaId: string;
   numero_parcela: number;
   valor: number;
   status: 'PENDENTE' | 'PAGO' | 'ATRASADO';
@@ -20,13 +21,13 @@ interface Negociacao {
   id: string;
   cliente_id: string;
   cobrador_id: string;
-  empresa_id: string;
+  empresaId: string;
 }
 
 interface Cliente {
   id: string;
   nome: string;
-  empresa_id: string;
+  empresaId: string;
 }
 
 export default function Parcelas() {
@@ -39,26 +40,29 @@ export default function Parcelas() {
   useEffect(() => {
     let qClientes = query(collection(db, 'clientes'));
     if (selectedEmpresa) {
-      qClientes = query(collection(db, 'clientes'), where('empresa_id', '==', selectedEmpresa.id));
+      qClientes = query(collection(db, 'clientes'), where('empresaId', '==', selectedEmpresa.id));
     }
     const unsubClientes = onSnapshot(qClientes, (snapshot) => {
-      setClientes(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome, empresa_id: doc.data().empresa_id } as Cliente)));
+      setClientes(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome, empresaId: doc.data().empresaId } as Cliente)));
     });
 
     let qNegociacoes = query(collection(db, 'negociacoes'));
     if (selectedEmpresa) {
-      qNegociacoes = query(collection(db, 'negociacoes'), where('empresa_id', '==', selectedEmpresa.id));
+      qNegociacoes = query(collection(db, 'negociacoes'), where('empresaId', '==', selectedEmpresa.id));
     }
     const unsubNegociacoes = onSnapshot(qNegociacoes, (snapshot) => {
       setNegociacoes(snapshot.docs.map(doc => ({ 
         id: doc.id, 
         cliente_id: doc.data().cliente_id,
         cobrador_id: doc.data().cobrador_id,
-        empresa_id: doc.data().empresa_id
+        empresaId: doc.data().empresaId
       } as Negociacao)));
     });
 
-    const qParcelas = query(collection(db, 'parcelas'), orderBy('data_vencimento', 'asc'));
+    let qParcelas = query(collection(db, 'parcelas'), orderBy('data_vencimento', 'asc'));
+    if (selectedEmpresa) {
+      qParcelas = query(collection(db, 'parcelas'), where('empresaId', '==', selectedEmpresa.id), orderBy('data_vencimento', 'asc'));
+    }
     const unsubParcelas = onSnapshot(qParcelas, async (snapshot) => {
       const fetchedParcelas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Parcela));
       

@@ -13,7 +13,8 @@ interface Agendamento {
   id: string;
   cliente_id: string;
   cobrador_id: string;
-  empresa_id: string;
+  empresaId: string;
+  uid?: string;
   data_agendamento: string;
   observacoes: string;
   status: 'PENDENTE' | 'CONCLUIDO';
@@ -23,7 +24,7 @@ interface Agendamento {
 interface Cliente {
   id: string;
   nome: string;
-  empresa_id: string;
+  empresaId: string;
 }
 
 export default function Agendamentos() {
@@ -40,17 +41,23 @@ export default function Agendamentos() {
   });
 
   useEffect(() => {
-    let qClientes = query(collection(db, 'clientes'), orderBy('nome'));
-    if (selectedEmpresa) {
-      qClientes = query(collection(db, 'clientes'), where('empresa_id', '==', selectedEmpresa.id), orderBy('nome'));
+    let qClientes;
+    if (appUser?.role === 'MASTER') {
+      qClientes = query(collection(db, 'clientes'), orderBy('nome'));
+    } else {
+      if (!selectedEmpresa) return;
+      qClientes = query(collection(db, 'clientes'), where('empresaId', '==', selectedEmpresa.id), orderBy('nome'));
     }
     const unsubClientes = onSnapshot(qClientes, (snapshot) => {
       setClientes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente)));
     });
-
-    let qAgendamentos = query(collection(db, 'agendamentos'), orderBy('data_agendamento', 'asc'));
-    if (selectedEmpresa) {
-      qAgendamentos = query(collection(db, 'agendamentos'), where('empresa_id', '==', selectedEmpresa.id), orderBy('data_agendamento', 'asc'));
+    
+    let qAgendamentos;
+    if (appUser?.role === 'MASTER') {
+      qAgendamentos = query(collection(db, 'agendamentos'), orderBy('data_agendamento', 'asc'));
+    } else {
+      if (!selectedEmpresa) return;
+      qAgendamentos = query(collection(db, 'agendamentos'), where('empresaId', '==', selectedEmpresa.id), orderBy('data_agendamento', 'asc'));
     }
     const unsubAgendamentos = onSnapshot(qAgendamentos, (snapshot) => {
       setAgendamentos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Agendamento)));
@@ -72,8 +79,9 @@ export default function Agendamentos() {
     try {
       const docRef = await addDoc(collection(db, 'agendamentos'), {
         cliente_id: cliente.id,
-        empresa_id: cliente.empresa_id,
+        empresaId: selectedEmpresa?.id || cliente.empresaId,
         cobrador_id: appUser.id,
+        uid: appUser.id,
         data_agendamento: new Date(formData.data_agendamento).toISOString(),
         observacoes: formData.observacoes,
         status: 'PENDENTE',
@@ -139,10 +147,12 @@ export default function Agendamentos() {
             <Printer className="w-4 h-4 mr-2" />
             Imprimir
           </Button>
-          <Button onClick={() => setIsModalOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Novo Agendamento
-          </Button>
+          {appUser?.role !== 'MASTER' && (
+            <Button onClick={() => setIsModalOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Novo Agendamento
+            </Button>
+          )}
         </div>
       </div>
 
@@ -177,22 +187,13 @@ export default function Agendamentos() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium print:hidden">
                     <div className="flex justify-end space-x-2">
-                      {agendamento.status === 'PENDENTE' && (
+                      {appUser?.role !== 'MASTER' && agendamento.status === 'PENDENTE' && (
                         <button 
                           onClick={() => handleConcluir(agendamento.id)}
                           className="text-green-600 hover:text-green-900 flex items-center"
                           title="Concluir"
                         >
                           <CheckCircle className="w-5 h-5" />
-                        </button>
-                      )}
-                      {appUser?.role === 'MASTER' && (
-                        <button 
-                          onClick={() => handleDelete(agendamento.id)}
-                          className="text-red-600 hover:text-red-900 flex items-center"
-                          title="Excluir"
-                        >
-                          <Trash2 className="w-5 h-5" />
                         </button>
                       )}
                     </div>

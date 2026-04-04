@@ -14,12 +14,28 @@ export default function Dashboard() {
     totalRecebido: 0,
     totalAReceber: 0,
     agendamentosHoje: 0,
+    performancePorCobrador: [] as { id: string; nome: string; total: number }[],
+    performancePorEmpresa: [] as { id: string; nome: string; total: number }[],
   });
+  
+  const [cobradores, setCobradores] = useState<{ id: string; nome: string }[]>([]);
+  const [empresas, setEmpresas] = useState<{ id: string; nome: string }[]>([]);
   
   const [filtros, setFiltros] = useState({
     dataInicio: '',
     dataFim: ''
   });
+
+  useEffect(() => {
+    const fetchAuxData = async () => {
+      const cobSnapshot = await getDocs(query(collection(db, 'users'), where('role', '==', 'COBRADOR')));
+      setCobradores(cobSnapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome })));
+      
+      const empSnapshot = await getDocs(collection(db, 'empresas'));
+      setEmpresas(empSnapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome })));
+    };
+    fetchAuxData();
+  }, []);
 
   useEffect(() => {
     if (!appUser) return;
@@ -33,8 +49,8 @@ export default function Dashboard() {
         if (appUser.role === 'COBRADOR') {
           filters.push(where('cobrador_id', '==', appUser.id));
         }
-        if (selectedEmpresa) {
-          filters.push(where('empresa_id', '==', selectedEmpresa.id));
+        if (selectedEmpresa && appUser.role !== 'MASTER') {
+          filters.push(where('empresaId', '==', selectedEmpresa.id));
         }
 
         if (filters.length > 0) {
@@ -45,6 +61,8 @@ export default function Dashboard() {
         
         let totalNegociado = 0;
         let totalRecebido = 0;
+        const cobradorMap: Record<string, number> = {};
+        const empresaMap: Record<string, number> = {};
 
         negSnapshot.docs.forEach(doc => {
           const data = doc.data();
@@ -59,16 +77,35 @@ export default function Dashboard() {
             if (new Date(data.createdAt) > dataFim) return;
           }
 
-          if (data.status === 'ESTORNADO') return;
+          if (data.status === 'ESTORNO') return;
+
+          let valorNegociado = 0;
+          let valorRecebido = 0;
 
           if (data.tipo === 'QUITACAO' || data.tipo === 'PARCELA' || data.tipo === 'RESGATE') {
-            totalNegociado += data.valor;
-            totalRecebido += data.valor;
+            valorNegociado = data.valor;
+            valorRecebido = data.valor;
           } else if (data.tipo === 'PARCELAMENTO') {
-            totalNegociado += data.valor;
-            totalRecebido += (data.valor_entrada || 0);
+            valorNegociado = data.valor;
+            valorRecebido = (data.valor_entrada || 0);
+          }
+
+          totalNegociado += valorNegociado;
+          totalRecebido += valorRecebido;
+
+          if (appUser.role === 'MASTER') {
+            cobradorMap[data.cobrador_id] = (cobradorMap[data.cobrador_id] || 0) + valorRecebido;
+            empresaMap[data.empresaId] = (empresaMap[data.empresaId] || 0) + valorRecebido;
           }
         });
+
+        const performancePorCobrador = Object.entries(cobradorMap)
+          .map(([id, total]) => ({ id, nome: cobradores.find(c => c.id === id)?.nome || 'Desconhecido', total }))
+          .sort((a, b) => b.total - a.total);
+
+        const performancePorEmpresa = Object.entries(empresaMap)
+          .map(([id, total]) => ({ id, nome: empresas.find(e => e.id === id)?.nome || 'Desconhecida', total }))
+          .sort((a, b) => b.total - a.total);
 
         const totalAReceber = totalNegociado - totalRecebido;
 
@@ -84,8 +121,8 @@ export default function Dashboard() {
         if (appUser.role === 'COBRADOR') {
           agendFilters.push(where('cobrador_id', '==', appUser.id));
         }
-        if (selectedEmpresa) {
-          agendFilters.push(where('empresa_id', '==', selectedEmpresa.id));
+        if (selectedEmpresa && appUser.role !== 'MASTER') {
+          agendFilters.push(where('empresaId', '==', selectedEmpresa.id));
         }
 
         if (agendFilters.length > 0) {
@@ -107,7 +144,9 @@ export default function Dashboard() {
           totalNegociado,
           totalRecebido,
           totalAReceber,
-          agendamentosHoje
+          agendamentosHoje,
+          performancePorCobrador,
+          performancePorEmpresa
         });
       } catch (error) {
         console.error("Error fetching stats:", error);
@@ -115,7 +154,7 @@ export default function Dashboard() {
     };
 
     fetchStats();
-  }, [appUser, filtros, selectedEmpresa]);
+  }, [appUser, filtros, selectedEmpresa, cobradores, empresas]);
 
   return (
     <div className="space-y-6">
@@ -227,6 +266,51 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {appUser?.role === 'MASTER' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardContent className="p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Desempenho por Cobrador (Ranking)</h3>
+              <div className="space-y-4">
+                {stats.performancePorCobrador.map((item, index) => (
+                  <div key={item.id} className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <span className="w-6 text-sm font-bold text-gray-400">{index + 1}º</span>
+                      <span className="ml-2 text-sm font-medium text-gray-900">{item.nome}</span>
+                    </div>
+                    <span className="text-sm font-bold text-blue-600">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.total)}
+                    </span>
+                  </div>
+                ))}
+                {stats.performancePorCobrador.length === 0 && (
+                  <p className="text-sm text-gray-500 text-center py-4">Nenhum dado disponível.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Desempenho por Empresa</h3>
+              <div className="space-y-4">
+                {stats.performancePorEmpresa.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-900">{item.nome}</span>
+                    <span className="text-sm font-bold text-green-600">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.total)}
+                    </span>
+                  </div>
+                ))}
+                {stats.performancePorEmpresa.length === 0 && (
+                  <p className="text-sm text-gray-500 text-center py-4">Nenhum dado disponível.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

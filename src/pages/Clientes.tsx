@@ -13,7 +13,7 @@ import { logAction } from '../utils/auditLogger';
 interface Cliente {
   id: string;
   codigo: string;
-  empresa_id: string;
+  empresaId: string;
   nome: string;
   endereco: string;
   telefone1: string;
@@ -22,6 +22,7 @@ interface Cliente {
   juros_tipo: 'PERCENTUAL' | 'FIXO' | 'NENHUM';
   juros_valor: number;
   createdAt: string;
+  uid?: string;
 }
 
 interface Empresa {
@@ -49,9 +50,13 @@ export default function Clientes() {
   });
 
   useEffect(() => {
-    if (!selectedEmpresa) return;
-
-    let qClientes = query(collection(db, 'clientes'), where('empresa_id', '==', selectedEmpresa.id), orderBy('createdAt', 'desc'));
+    let qClientes;
+    if (appUser?.role === 'MASTER') {
+      qClientes = query(collection(db, 'clientes'), orderBy('createdAt', 'desc'));
+    } else {
+      if (!selectedEmpresa) return;
+      qClientes = query(collection(db, 'clientes'), where('empresaId', '==', selectedEmpresa.id), orderBy('createdAt', 'desc'));
+    }
     
     const unsubClientes = onSnapshot(qClientes, (snapshot) => {
       setClientes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente)));
@@ -64,13 +69,13 @@ export default function Clientes() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEmpresa) return;
+    if (!selectedEmpresa || !appUser) return;
 
     try {
       // Check for duplicate code in the same company
       const isDuplicate = clientes.some(c => 
         c.codigo === formData.codigo && 
-        c.empresa_id === selectedEmpresa.id && 
+        c.empresaId === selectedEmpresa.id && 
         c.id !== editingCliente?.id
       );
 
@@ -81,7 +86,8 @@ export default function Clientes() {
 
       const payload = {
         ...formData,
-        empresa_id: selectedEmpresa.id
+        empresaId: selectedEmpresa.id,
+        uid: appUser.id
       };
 
       if (editingCliente) {
@@ -144,10 +150,12 @@ export default function Clientes() {
           <h1 className="text-2xl font-semibold text-gray-900">Clientes</h1>
           <p className="mt-1 text-sm text-gray-500">Gerenciamento de clientes e devedores.</p>
         </div>
-        <Button onClick={openNewModal}>
-          <Plus className="w-4 h-4 mr-2" />
-          Novo Cliente
-        </Button>
+        {appUser?.role !== 'MASTER' && (
+          <Button onClick={openNewModal}>
+            <Plus className="w-4 h-4 mr-2" />
+            Novo Cliente
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -181,34 +189,29 @@ export default function Clientes() {
                     >
                       <History className="w-4 h-4" />
                     </button>
-                    <button 
-                      onClick={() => {
-                        setEditingCliente(cliente);
-                        setFormData({
-                          codigo: cliente.codigo,
-                          nome: cliente.nome,
-                          endereco: cliente.endereco,
-                          telefone1: cliente.telefone1,
-                          telefone2: cliente.telefone2 || '',
-                          valor_debito: cliente.valor_debito,
-                          juros_tipo: cliente.juros_tipo,
-                          juros_valor: cliente.juros_valor,
-                        });
-                        setIsModalOpen(true);
-                      }}
-                      className="text-blue-600 hover:text-blue-900 mr-4"
-                      title="Editar"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    {appUser?.role === 'MASTER' && (
-                      <button 
-                        onClick={() => handleDelete(cliente.id)}
-                        className="text-red-600 hover:text-red-900"
-                        title="Excluir"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                    {appUser?.role !== 'MASTER' && (
+                      <>
+                        <button 
+                          onClick={() => {
+                            setEditingCliente(cliente);
+                            setFormData({
+                              codigo: cliente.codigo,
+                              nome: cliente.nome,
+                              endereco: cliente.endereco,
+                              telefone1: cliente.telefone1,
+                              telefone2: cliente.telefone2 || '',
+                              valor_debito: cliente.valor_debito,
+                              juros_tipo: cliente.juros_tipo,
+                              juros_valor: cliente.juros_valor,
+                            });
+                            setIsModalOpen(true);
+                          }}
+                          className="text-blue-600 hover:text-blue-900 mr-4"
+                          title="Editar"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>

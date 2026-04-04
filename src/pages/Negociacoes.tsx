@@ -12,8 +12,9 @@ import { logAction } from '../utils/auditLogger';
 interface Negociacao {
   id: string;
   cliente_id: string;
-  empresa_id: string;
+  empresaId: string;
   cobrador_id: string;
+  uid?: string;
   tipo: 'QUITACAO' | 'PARCELAMENTO' | 'PARCELA' | 'RESGATE';
   valor: number;
   valor_entrada?: number;
@@ -27,7 +28,7 @@ interface Cliente {
   id: string;
   nome: string;
   valor_debito: number;
-  empresa_id: string;
+  empresaId: string;
 }
 
 export default function Negociacoes() {
@@ -49,7 +50,7 @@ export default function Negociacoes() {
   useEffect(() => {
     let qClientes = query(collection(db, 'clientes'), orderBy('nome'));
     if (selectedEmpresa) {
-      qClientes = query(collection(db, 'clientes'), where('empresa_id', '==', selectedEmpresa.id), orderBy('nome'));
+      qClientes = query(collection(db, 'clientes'), where('empresaId', '==', selectedEmpresa.id), orderBy('nome'));
     }
     
     const unsubClientes = onSnapshot(qClientes, (snapshot) => {
@@ -58,7 +59,7 @@ export default function Negociacoes() {
 
     let qNegociacoes = query(collection(db, 'negociacoes'), orderBy('createdAt', 'desc'));
     if (selectedEmpresa) {
-      qNegociacoes = query(collection(db, 'negociacoes'), where('empresa_id', '==', selectedEmpresa.id), orderBy('createdAt', 'desc'));
+      qNegociacoes = query(collection(db, 'negociacoes'), where('empresaId', '==', selectedEmpresa.id), orderBy('createdAt', 'desc'));
     }
 
     const unsubNegociacoes = onSnapshot(qNegociacoes, (snapshot) => {
@@ -115,8 +116,9 @@ export default function Negociacoes() {
         const newNegociacaoRef = doc(collection(db, 'negociacoes'));
         transaction.set(newNegociacaoRef, {
           cliente_id: cliente.id,
-          empresa_id: cliente.empresa_id,
+          empresaId: selectedEmpresa?.id || cliente.empresaId,
           cobrador_id: appUser.id,
+          uid: appUser.id,
           tipo: formData.tipo,
           valor: valorTotalNegociado,
           valor_entrada: formData.valor_entrada,
@@ -132,6 +134,8 @@ export default function Negociacoes() {
           transaction.set(movRef, {
             cliente_id: cliente.id,
             negociacao_id: newNegociacaoRef.id,
+            empresaId: selectedEmpresa?.id || cliente.empresaId,
+            uid: appUser.id,
             tipo: 'PAGAMENTO',
             valor: valorPago,
             saldo_anterior: debitoAtual,
@@ -153,6 +157,8 @@ export default function Negociacoes() {
             
             transaction.set(parcelaRef, {
               negociacao_id: newNegociacaoRef.id,
+              empresaId: selectedEmpresa?.id || cliente.empresaId,
+              uid: appUser.id,
               numero_parcela: i,
               valor: valorParcela,
               status: 'PENDENTE',
@@ -220,6 +226,8 @@ export default function Negociacoes() {
           transaction.set(movRef, {
             cliente_id: negociacao.cliente_id,
             negociacao_id: negociacao.id,
+            empresaId: selectedEmpresa?.id || negociacao.empresaId,
+            uid: appUser.id,
             tipo: 'ESTORNO',
             valor: valorRevertido,
             saldo_anterior: debitoAtual,

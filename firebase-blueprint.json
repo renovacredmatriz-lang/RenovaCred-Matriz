@@ -34,7 +34,7 @@
       "type": "object",
       "properties": {
         "codigo": { "type": "string", "description": "Unique code per company" },
-        "empresa_id": { "type": "string", "description": "ID of the associated Empresa" },
+        "empresaId": { "type": "string", "description": "ID of the associated Empresa" },
         "nome": { "type": "string", "description": "Name of the client" },
         "endereco": { "type": "string", "description": "Address" },
         "telefone1": { "type": "string", "description": "Primary phone" },
@@ -42,10 +42,11 @@
         "valor_debito": { "type": "number", "description": "Current debt value" },
         "juros_tipo": { "type": "string", "enum": ["PERCENTUAL", "FIXO", "NENHUM"], "description": "Type of interest" },
         "juros_valor": { "type": "number", "description": "Interest value" },
+        "uid": { "type": "string", "description": "User ID of the creator" },
         "franquia_id": { "type": "string", "description": "Future multi-tenant franchise ID" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["codigo", "empresa_id", "nome", "valor_debito", "createdAt"]
+      "required": ["codigo", "empresaId", "nome", "valor_debito", "createdAt"]
     },
     "Negociacao": {
       "title": "Negociacao",
@@ -53,8 +54,9 @@
       "type": "object",
       "properties": {
         "cliente_id": { "type": "string" },
-        "empresa_id": { "type": "string" },
+        "empresaId": { "type": "string" },
         "cobrador_id": { "type": "string" },
+        "uid": { "type": "string", "description": "User ID of the creator" },
         "tipo": { "type": "string", "enum": ["QUITACAO", "PARCELAMENTO", "PARCELA", "RESGATE"] },
         "valor": { "type": "number", "description": "Total value negotiated" },
         "valor_entrada": { "type": "number", "description": "Down payment value" },
@@ -64,7 +66,7 @@
         "franquia_id": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["cliente_id", "empresa_id", "cobrador_id", "tipo", "valor", "createdAt"]
+      "required": ["cliente_id", "empresaId", "cobrador_id", "tipo", "valor", "createdAt"]
     },
     "Parcela": {
       "title": "Parcela",
@@ -72,6 +74,8 @@
       "type": "object",
       "properties": {
         "negociacao_id": { "type": "string" },
+        "empresaId": { "type": "string" },
+        "uid": { "type": "string" },
         "numero_parcela": { "type": "number" },
         "valor": { "type": "number" },
         "status": { "type": "string", "enum": ["PENDENTE", "PAGO", "ATRASADO"] },
@@ -87,14 +91,15 @@
       "properties": {
         "cliente_id": { "type": "string" },
         "cobrador_id": { "type": "string" },
-        "empresa_id": { "type": "string" },
+        "empresaId": { "type": "string" },
+        "uid": { "type": "string" },
         "data_agendamento": { "type": "string", "format": "date-time" },
         "observacoes": { "type": "string" },
         "status": { "type": "string", "enum": ["PENDENTE", "CONCLUIDO"] },
         "franquia_id": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["cliente_id", "cobrador_id", "empresa_id", "data_agendamento", "status", "createdAt"]
+      "required": ["cliente_id", "cobrador_id", "empresaId", "data_agendamento", "status", "createdAt"]
     },
     "Movimentacao": {
       "title": "Movimentacao",
@@ -102,6 +107,8 @@
       "type": "object",
       "properties": {
         "cliente_id": { "type": "string" },
+        "empresaId": { "type": "string" },
+        "uid": { "type": "string" },
         "tipo": { "type": "string", "enum": ["PAGAMENTO", "NEGOCIACAO", "AJUSTE", "ESTORNO"] },
         "valor": { "type": "number" },
         "saldo_anterior": { "type": "number" },

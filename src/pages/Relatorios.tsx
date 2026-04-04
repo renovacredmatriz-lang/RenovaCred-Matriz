@@ -11,6 +11,7 @@ interface Movimentacao {
   id: string;
   cliente_id: string;
   negociacao_id?: string;
+  empresaId: string;
   tipo: 'PAGAMENTO' | 'NEGOCIACAO' | 'AJUSTE' | 'ESTORNO';
   valor: number;
   saldo_anterior: number;
@@ -19,7 +20,7 @@ interface Movimentacao {
   cobrador_id: string;
 }
 
-interface Cliente { id: string; nome: string; empresa_id: string; }
+interface Cliente { id: string; nome: string; empresaId: string; codigo?: string; }
 interface Empresa { id: string; nome: string; }
 interface Cobrador { id: string; nome: string; comissao_percentual?: number; }
 
@@ -35,12 +36,20 @@ export default function Relatorios() {
     dataInicio: '',
     dataFim: '',
     cliente_id: '',
-    cobrador_id: ''
+    cliente_search: '',
+    cobrador_id: '',
+    empresa_id: '',
+    status: ''
   });
 
   useEffect(() => {
     const unsubClientes = onSnapshot(collection(db, 'clientes'), (snapshot) => {
-      setClientes(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome, empresa_id: doc.data().empresa_id })));
+      setClientes(snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        nome: doc.data().nome, 
+        empresaId: doc.data().empresaId,
+        codigo: doc.data().codigo
+      })));
     });
     const unsubEmpresas = onSnapshot(collection(db, 'empresas'), (snapshot) => {
       setEmpresas(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome })));
@@ -53,9 +62,14 @@ export default function Relatorios() {
       })));
     });
     
-    if (!selectedEmpresa) return;
+    let qMovimentacoes;
+    if (appUser?.role === 'MASTER') {
+      qMovimentacoes = query(collection(db, 'movimentacoes'), orderBy('data', 'desc'));
+    } else {
+      if (!selectedEmpresa) return;
+      qMovimentacoes = query(collection(db, 'movimentacoes'), where('empresaId', '==', selectedEmpresa.id), orderBy('data', 'desc'));
+    }
 
-    let qMovimentacoes = query(collection(db, 'movimentacoes'), orderBy('data', 'desc'));
     const unsubMovimentacoes = onSnapshot(qMovimentacoes, (snapshot) => {
       setMovimentacoes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Movimentacao)));
     });
@@ -75,11 +89,22 @@ export default function Relatorios() {
   const filteredMovimentacoes = movimentacoes.filter(mov => {
     const cliente = clientes.find(c => c.id === mov.cliente_id);
     
-    // Filtro obrigatório por empresa selecionada
-    if (cliente?.empresa_id !== selectedEmpresa?.id) return false;
+    // Filtro por empresa (MASTER vê tudo ou filtra por uma, COBRADOR vê apenas a selecionada)
+    if (appUser?.role === 'COBRADOR') {
+      if (mov.empresaId !== selectedEmpresa?.id && cliente?.empresaId !== selectedEmpresa?.id) return false;
+    } else {
+      if (filtros.empresa_id && mov.empresaId !== filtros.empresa_id) return false;
+    }
 
     if (filtros.cliente_id && mov.cliente_id !== filtros.cliente_id) return false;
+    if (filtros.cliente_search) {
+      const search = filtros.cliente_search.toLowerCase();
+      const clienteNome = cliente?.nome.toLowerCase() || '';
+      const clienteCodigo = (cliente as any)?.codigo?.toLowerCase() || '';
+      if (!clienteNome.includes(search) && !clienteCodigo.includes(search)) return false;
+    }
     if (filtros.cobrador_id && mov.cobrador_id !== filtros.cobrador_id) return false;
+    if (filtros.status && mov.tipo !== filtros.status) return false;
     
     if (filtros.dataInicio) {
       if (new Date(mov.data) < new Date(filtros.dataInicio)) return false;
@@ -103,7 +128,7 @@ export default function Relatorios() {
   const getEmpresaNome = (cliente_id: string) => {
     const cliente = clientes.find(c => c.id === cliente_id);
     if (!cliente) return 'Desconhecida';
-    return empresas.find(e => e.id === cliente.empresa_id)?.nome || 'Desconhecida';
+    return empresas.find(e => e.id === cliente.empresaId)?.nome || 'Desconhecida';
   };
   const getCobradorNome = (id: string) => cobradores.find(c => c.id === id)?.nome || 'Desconhecido';
   
@@ -156,28 +181,68 @@ export default function Relatorios() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Cliente (Nome/Código)</label>
+            <input
+              type="text"
+              placeholder="Buscar por nome ou código..."
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+              value={filtros.cliente_search}
+              onChange={(e) => setFiltros({ ...filtros, cliente_search: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Cliente (Lista)</label>
             <select
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
               value={filtros.cliente_id}
               onChange={(e) => setFiltros({ ...filtros, cliente_id: e.target.value })}
             >
               <option value="">Todos</option>
-              {clientes.filter(c => c.empresa_id === selectedEmpresa?.id).map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              {clientes
+                .filter(c => appUser?.role === 'MASTER' || c.empresaId === selectedEmpresa?.id)
+                .map(c => <option key={c.id} value={c.id}>{c.nome}</option>)
+              }
             </select>
           </div>
           {appUser?.role === 'MASTER' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Cobrador</label>
-              <select
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                value={filtros.cobrador_id}
-                onChange={(e) => setFiltros({ ...filtros, cobrador_id: e.target.value })}
-              >
-                <option value="">Todos</option>
-                {cobradores.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-              </select>
-            </div>
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
+                <select
+                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                  value={filtros.empresa_id}
+                  onChange={(e) => setFiltros({ ...filtros, empresa_id: e.target.value })}
+                >
+                  <option value="">Todas</option>
+                  {empresas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cobrador</label>
+                <select
+                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                  value={filtros.cobrador_id}
+                  onChange={(e) => setFiltros({ ...filtros, cobrador_id: e.target.value })}
+                >
+                  <option value="">Todos</option>
+                  {cobradores.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status/Tipo</label>
+                <select
+                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                  value={filtros.status}
+                  onChange={(e) => setFiltros({ ...filtros, status: e.target.value })}
+                >
+                  <option value="">Todos</option>
+                  <option value="PAGAMENTO">Pagamento</option>
+                  <option value="ESTORNO">Estorno</option>
+                  <option value="NEGOCIACAO">Negociação</option>
+                  <option value="AJUSTE">Ajuste</option>
+                </select>
+              </div>
+            </>
           )}
         </div>
       </Card>

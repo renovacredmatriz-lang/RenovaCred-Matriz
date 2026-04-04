@@ -55,31 +55,38 @@ service cloud.firestore {
     
     match /clientes/{clienteId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
-      allow delete: if isMaster();
+      allow create, update: if isCobrador() && 
+                            request.resource.data.empresaId != null &&
+                            request.resource.data.uid == request.auth.uid;
+      allow delete: if false;
     }
     
     match /negociacoes/{negociacaoId} {
       allow read: if isAuthenticated();
-      allow create: if isCobrador();
-      allow update, delete: if isCobrador() && resource.data.cobrador_id == request.auth.uid;
+      allow create: if isCobrador() && 
+                    request.resource.data.empresaId != null &&
+                    request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isCobrador() && resource.data.uid == request.auth.uid;
     }
     
     match /parcelas/{parcelaId} {
       allow read: if isAuthenticated();
-      allow create: if isCobrador();
-      allow update, delete: if isCobrador();
+      allow create, update, delete: if isCobrador();
     }
     
     match /agendamentos/{agendamentoId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
-      allow delete: if isMaster() || (isCobrador() && resource.data.cobrador_id == request.auth.uid);
+      allow create, update: if isCobrador() && 
+                            request.resource.data.empresaId != null &&
+                            request.resource.data.uid == request.auth.uid;
+      allow delete: if isCobrador() && resource.data.uid == request.auth.uid;
     }
 
     match /movimentacoes/{movimentacaoId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
+      allow create: if isCobrador() && 
+                    request.resource.data.empresaId != null &&
+                    request.resource.data.uid == request.auth.uid;
       allow update, delete: if false; // Immutable ledger
     }
 

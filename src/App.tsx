@@ -52,7 +52,8 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   }
 
   // Se não tiver empresa selecionada, redireciona para seleção (exceto se já estiver na tela de seleção)
-  if (!selectedEmpresa && location.pathname !== '/selecionar-empresa') {
+  // MASTER não tem obrigatoriedade de seleção de empresa
+  if (appUser.role !== 'MASTER' && !selectedEmpresa && location.pathname !== '/selecionar-empresa') {
     return <Navigate to="/selecionar-empresa" />;
   }
 
