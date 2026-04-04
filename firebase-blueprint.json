@@ -1,0 +1,164 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the system (Admin Master or Cobrador)",
+      "type": "object",
+      "properties": {
+        "nome": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "format": "email", "description": "Email address (used for login)" },
+        "tipo_usuario": { "type": "string", "enum": ["MASTER", "COBRADOR"], "description": "Role of the user" },
+        "ativo": { "type": "boolean", "description": "Whether the user is active" },
+        "foto_perfil": { "type": "string", "description": "URL of the profile photo" },
+        "comissao_percentual": { "type": "number", "description": "Commission percentage for Cobrador" },
+        "franquia_id": { "type": "string", "description": "Future multi-tenant franchise ID" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nome", "email", "tipo_usuario", "ativo", "createdAt"]
+    },
+    "Empresa": {
+      "title": "Empresa",
+      "description": "A company that has clients with debts",
+      "type": "object",
+      "properties": {
+        "nome": { "type": "string", "description": "Name of the company" },
+        "ativo": { "type": "boolean", "description": "Whether the company is active" },
+        "franquia_id": { "type": "string", "description": "Future multi-tenant franchise ID" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nome", "ativo", "createdAt"]
+    },
+    "Cliente": {
+      "title": "Cliente",
+      "description": "A client with a debt",
+      "type": "object",
+      "properties": {
+        "codigo": { "type": "string", "description": "Unique code per company" },
+        "empresa_id": { "type": "string", "description": "ID of the associated Empresa" },
+        "nome": { "type": "string", "description": "Name of the client" },
+        "endereco": { "type": "string", "description": "Address" },
+        "telefone1": { "type": "string", "description": "Primary phone" },
+        "telefone2": { "type": "string", "description": "Secondary phone" },
+        "valor_debito": { "type": "number", "description": "Current debt value" },
+        "juros_tipo": { "type": "string", "enum": ["PERCENTUAL", "FIXO", "NENHUM"], "description": "Type of interest" },
+        "juros_valor": { "type": "number", "description": "Interest value" },
+        "franquia_id": { "type": "string", "description": "Future multi-tenant franchise ID" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["codigo", "empresa_id", "nome", "valor_debito", "createdAt"]
+    },
+    "Negociacao": {
+      "title": "Negociacao",
+      "description": "A negotiation made by a Cobrador with a Cliente",
+      "type": "object",
+      "properties": {
+        "cliente_id": { "type": "string" },
+        "empresa_id": { "type": "string" },
+        "cobrador_id": { "type": "string" },
+        "tipo": { "type": "string", "enum": ["QUITACAO", "PARCELAMENTO", "PARCELA", "RESGATE"] },
+        "valor": { "type": "number", "description": "Total value negotiated" },
+        "valor_entrada": { "type": "number", "description": "Down payment value" },
+        "numero_parcelas": { "type": "number", "description": "Number of installments" },
+        "observacoes": { "type": "string" },
+        "status": { "type": "string", "enum": ["ATIVO", "ESTORNADO"], "description": "Status of the negotiation" },
+        "franquia_id": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cliente_id", "empresa_id", "cobrador_id", "tipo", "valor", "createdAt"]
+    },
+    "Parcela": {
+      "title": "Parcela",
+      "description": "An installment of a negotiation",
+      "type": "object",
+      "properties": {
+        "negociacao_id": { "type": "string" },
+        "numero_parcela": { "type": "number" },
+        "valor": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDENTE", "PAGO", "ATRASADO"] },
+        "data_pagamento": { "type": "string", "format": "date-time" },
+        "data_vencimento": { "type": "string", "format": "date-time" }
+      },
+      "required": ["negociacao_id", "numero_parcela", "valor", "status", "data_vencimento"]
+    },
+    "Agendamento": {
+      "title": "Agendamento",
+      "description": "An appointment/reminder for a Cobrador to contact a Cliente",
+      "type": "object",
+      "properties": {
+        "cliente_id": { "type": "string" },
+        "cobrador_id": { "type": "string" },
+        "empresa_id": { "type": "string" },
+        "data_agendamento": { "type": "string", "format": "date-time" },
+        "observacoes": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDENTE", "CONCLUIDO"] },
+        "franquia_id": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cliente_id", "cobrador_id", "empresa_id", "data_agendamento", "status", "createdAt"]
+    },
+    "Movimentacao": {
+      "title": "Movimentacao",
+      "description": "Financial ledger of debt changes",
+      "type": "object",
+      "properties": {
+        "cliente_id": { "type": "string" },
+        "tipo": { "type": "string", "enum": ["PAGAMENTO", "NEGOCIACAO", "AJUSTE", "ESTORNO"] },
+        "valor": { "type": "number" },
+        "saldo_anterior": { "type": "number" },
+        "saldo_atual": { "type": "number" },
+        "data": { "type": "string", "format": "date-time" },
+        "cobrador_id": { "type": "string" },
+        "negociacao_id": { "type": "string" }
+      },
+      "required": ["cliente_id", "tipo", "valor", "saldo_anterior", "saldo_atual", "data", "cobrador_id"]
+    },
+    "Log": {
+      "title": "Log",
+      "description": "Audit log of actions",
+      "type": "object",
+      "properties": {
+        "entidade": { "type": "string" },
+        "entidade_id": { "type": "string" },
+        "acao": { "type": "string" },
+        "usuario_id": { "type": "string" },
+        "data": { "type": "string", "format": "date-time" },
+        "detalhes": { "type": "string" }
+      },
+      "required": ["entidade", "entidade_id", "acao", "usuario_id", "data"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Users collection"
+    },
+    "/empresas/{empresaId}": {
+      "schema": "Empresa",
+      "description": "Empresas collection"
+    },
+    "/clientes/{clienteId}": {
+      "schema": "Cliente",
+      "description": "Clientes collection"
+    },
+    "/negociacoes/{negociacaoId}": {
+      "schema": "Negociacao",
+      "description": "Negociacoes collection"
+    },
+    "/parcelas/{parcelaId}": {
+      "schema": "Parcela",
+      "description": "Parcelas collection"
+    },
+    "/agendamentos/{agendamentoId}": {
+      "schema": "Agendamento",
+      "description": "Agendamentos collection"
+    },
+    "/movimentacoes/{movimentacaoId}": {
+      "schema": "Movimentacao",
+      "description": "Ledger of financial changes"
+    },
+    "/logs/{logId}": {
+      "schema": "Log",
+      "description": "Audit logs"
+    }
+  }
+}

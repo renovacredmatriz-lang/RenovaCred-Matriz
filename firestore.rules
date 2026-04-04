@@ -1,0 +1,83 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isMaster() {
+      return isAuthenticated() && (
+        getUserData().tipo_usuario == 'MASTER' || 
+        (request.auth.token.email == "renovacredmatriz@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+    
+    function isCobrador() {
+      return isAuthenticated() && getUserData().tipo_usuario == 'COBRADOR';
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isMaster();
+      allow update: if isMaster() || (isOwner(userId) && request.resource.data.tipo_usuario == resource.data.tipo_usuario);
+      allow delete: if isMaster();
+    }
+    
+    match /empresas/{empresaId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isMaster();
+    }
+    
+    match /clientes/{clienteId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isMaster();
+    }
+    
+    match /negociacoes/{negociacaoId} {
+      allow read: if isAuthenticated();
+      allow create: if isCobrador();
+      allow update, delete: if isCobrador() && resource.data.cobrador_id == request.auth.uid;
+    }
+    
+    match /parcelas/{parcelaId} {
+      allow read: if isAuthenticated();
+      allow create: if isCobrador();
+      allow update, delete: if isCobrador();
+    }
+    
+    match /agendamentos/{agendamentoId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isMaster() || (isCobrador() && resource.data.cobrador_id == request.auth.uid);
+    }
+
+    match /movimentacoes/{movimentacaoId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if false; // Immutable ledger
+    }
+
+    match /logs/{logId} {
+      allow read: if isMaster();
+      allow create: if isAuthenticated();
+      allow update, delete: if false; // Immutable logs
+    }
+  }
+}
