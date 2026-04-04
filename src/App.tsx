@@ -14,15 +14,30 @@ import Relatorios from './pages/Relatorios';
 import Configuracoes from './pages/Configuracoes';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { currentUser, appUser } = useAuth();
+  const { currentUser, appUser, loading } = useAuth();
   
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+  }
+
   if (!currentUser) {
     return <Navigate to="/login" />;
   }
   
   if (!appUser) {
-    // Waiting for appUser to load or user not registered
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+    // User is authenticated but appUser failed to load (e.g. permission error)
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 text-center">
+        <h1 className="text-xl font-bold text-red-600 mb-2">Erro de Acesso</h1>
+        <p className="text-gray-600 mb-4">Não foi possível carregar seu perfil. Verifique suas permissões ou entre em contato com o administrador.</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+        >
+          Tentar Novamente
+        </button>
+      </div>
+    );
   }
 
   return <>{children}</>;

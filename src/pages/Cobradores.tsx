@@ -43,17 +43,19 @@ export default function Cobradores() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const emailLower = formData.email.toLowerCase();
     try {
       if (editingCobrador) {
         await updateDoc(doc(db, 'users', editingCobrador.id), {
           nome: formData.nome,
-          email: formData.email,
+          email: emailLower,
           comissao_percentual: formData.comissao_percentual,
           ativo: formData.ativo
         });
       } else {
         await addDoc(collection(db, 'users'), {
           ...formData,
+          email: emailLower,
           role: 'COBRADOR',
           createdAt: new Date().toISOString()
         });
