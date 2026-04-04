@@ -88,9 +88,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Garantir que o campo role exista (migração de tipo_usuario para role)
           const role = userData.role || userData.tipo_usuario || 'COBRADOR';
           
-          // Garantir que o campo uid exista no documento e o email esteja em lowercase
+          // Garantir que o campo uid esteja correto e o email esteja em lowercase
           const updates: any = {};
-          if (!userData.uid) updates.uid = user.uid;
+          if (userData.uid !== user.uid) updates.uid = user.uid;
           if (userData.role !== role) updates.role = role;
           if (userData.email !== email) updates.email = email;
 
@@ -165,7 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               const role = existingData.role || existingData.tipo_usuario || 'COBRADOR';
               
               const updates: any = {};
-              if (!existingData.uid) updates.uid = user.uid;
+              if (existingData.uid !== user.uid) updates.uid = user.uid;
               if (existingData.role !== role) updates.role = role;
               if (existingData.email !== email) updates.email = email;
 

@@ -35,7 +35,11 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isMaster() || isOwner(userId) || (isAuthenticated() && (request.auth.uid == resource.data.uid || request.auth.token.email == resource.data.email));
       allow create: if isMaster() || (isOwner(userId) && request.resource.data.role == 'COBRADOR');
-      allow update: if isMaster() || (isOwner(userId) && request.resource.data.role == resource.data.role);
+      allow update: if isMaster() || 
+                    (isAuthenticated() && request.auth.token.email == resource.data.email && 
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid']) &&
+                     request.resource.data.uid == request.auth.uid) ||
+                    (isAuthenticated() && request.auth.uid == resource.data.uid && request.resource.data.role == resource.data.role);
       allow delete: if isMaster();
     }
     
