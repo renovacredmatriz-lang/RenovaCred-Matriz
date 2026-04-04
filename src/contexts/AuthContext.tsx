@@ -40,42 +40,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (user) {
         try {
           // 1. Buscar o usuário no Firestore usando o UID (na collection users)
-          // Primeiro tenta buscar pelo ID do documento (compatibilidade com código anterior)
-          let userDocRef = doc(db, 'users', user.uid);
-          let userDoc = await getDoc(userDocRef);
-          let userData = userDoc.exists() ? userDoc.data() : null;
+          let userDocRef: any = null;
+          let userData: any = null;
 
-          // Se não achou pelo ID do documento, tenta buscar pelo campo uid
-          if (!userData) {
-            const qUsers = query(collection(db, 'users'), where('uid', '==', user.uid));
-            const usersSnapshot = await getDocs(qUsers);
-            if (!usersSnapshot.empty) {
-              if (usersSnapshot.size > 1) {
-                console.warn(`Aviso: Múltiplos usuários encontrados com o UID ${user.uid} na coleção users. Utilizando o primeiro registro válido.`);
-              }
-              userDocRef = usersSnapshot.docs[0].ref;
-              userData = usersSnapshot.docs[0].data();
-            } else {
-              // Se não achou pelo uid, tenta buscar pelo email na collection users (caso criado pelo MASTER)
-              if (user.email) {
-                const qUsersEmail = query(collection(db, 'users'), where('email', '==', user.email));
-                const usersEmailSnapshot = await getDocs(qUsersEmail);
-                if (!usersEmailSnapshot.empty) {
-                  if (usersEmailSnapshot.size > 1) {
-                    console.warn(`Aviso: Múltiplos usuários encontrados com o email ${user.email} na coleção users.`);
-                    let bestDoc = usersEmailSnapshot.docs[0];
-                    for (const doc of usersEmailSnapshot.docs) {
-                      if (doc.data().uid) {
-                        bestDoc = doc;
-                        break;
-                      }
+          const qUsers = query(collection(db, 'users'), where('uid', '==', user.uid));
+          const usersSnapshot = await getDocs(qUsers);
+          
+          if (!usersSnapshot.empty) {
+            if (usersSnapshot.docs.length > 1) {
+              console.warn(`Aviso: Múltiplos usuários encontrados com o UID ${user.uid} na coleção users. Utilizando o primeiro registro válido.`);
+            }
+            userDocRef = usersSnapshot.docs[0].ref;
+            userData = usersSnapshot.docs[0].data();
+          } else {
+            // Se não achou pelo uid, tenta buscar pelo email na collection users (caso criado pelo MASTER)
+            if (user.email) {
+              const qUsersEmail = query(collection(db, 'users'), where('email', '==', user.email));
+              const usersEmailSnapshot = await getDocs(qUsersEmail);
+              if (!usersEmailSnapshot.empty) {
+                if (usersEmailSnapshot.docs.length > 1) {
+                  console.warn(`Aviso: Múltiplos usuários encontrados com o email ${user.email} na coleção users.`);
+                  let bestDoc = usersEmailSnapshot.docs[0];
+                  for (const doc of usersEmailSnapshot.docs) {
+                    if (doc.data().uid) {
+                      bestDoc = doc;
+                      break;
                     }
-                    userDocRef = bestDoc.ref;
-                    userData = bestDoc.data();
-                  } else {
-                    userDocRef = usersEmailSnapshot.docs[0].ref;
-                    userData = usersEmailSnapshot.docs[0].data();
                   }
+                  userDocRef = bestDoc.ref;
+                  userData = bestDoc.data();
+                } else {
+                  userDocRef = usersEmailSnapshot.docs[0].ref;
+                  userData = usersEmailSnapshot.docs[0].data();
                 }
               }
             }

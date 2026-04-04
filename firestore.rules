@@ -33,15 +33,15 @@ service cloud.firestore {
     // ===============================================================
     
     match /users/{userId} {
-      allow read: if isAuthenticated();
+      allow read: if isMaster() || isOwner(userId) || (isAuthenticated() && (request.auth.uid == resource.data.uid || request.auth.token.email == resource.data.email));
       allow create: if isMaster() || (isOwner(userId) && request.resource.data.role == 'COBRADOR');
       allow update: if isMaster() || (isOwner(userId) && request.resource.data.role == resource.data.role);
       allow delete: if isMaster();
     }
     
     match /cobradores/{cobradorId} {
-      allow read: if isAuthenticated();
-      allow update: if isAuthenticated();
+      allow read: if isMaster() || (isAuthenticated() && resource.data.email == request.auth.token.email);
+      allow update: if isMaster() || (isAuthenticated() && resource.data.email == request.auth.token.email);
     }
     
     match /empresas/{empresaId} {
