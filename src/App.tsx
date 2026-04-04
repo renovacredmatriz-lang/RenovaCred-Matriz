@@ -1,6 +1,7 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { EmpresaProvider, useEmpresa } from './contexts/EmpresaContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -12,12 +13,22 @@ import Parcelas from './pages/Parcelas';
 import Agendamentos from './pages/Agendamentos';
 import Relatorios from './pages/Relatorios';
 import Configuracoes from './pages/Configuracoes';
+import SelecaoEmpresa from './pages/SelecaoEmpresa';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { currentUser, appUser, loading } = useAuth();
+  const { selectedEmpresa } = useEmpresa();
+  const location = useLocation();
   
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 font-medium">Carregando...</p>
+        </div>
+      </div>
+    );
   }
 
   if (!currentUser) {
@@ -40,29 +51,41 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
+  // Se não tiver empresa selecionada, redireciona para seleção (exceto se já estiver na tela de seleção)
+  if (!selectedEmpresa && location.pathname !== '/selecionar-empresa') {
+    return <Navigate to="/selecionar-empresa" />;
+  }
+
   return <>{children}</>;
 }
 
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          
-          <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
-            <Route index element={<Dashboard />} />
-            <Route path="empresas" element={<Empresas />} />
-            <Route path="cobradores" element={<Cobradores />} />
-            <Route path="clientes" element={<Clientes />} />
-            <Route path="negociacoes" element={<Negociacoes />} />
-            <Route path="parcelas" element={<Parcelas />} />
-            <Route path="agendamentos" element={<Agendamentos />} />
-            <Route path="relatorios" element={<Relatorios />} />
-            <Route path="configuracoes" element={<Configuracoes />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <EmpresaProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/selecionar-empresa" element={
+              <PrivateRoute>
+                <SelecaoEmpresa />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
+              <Route index element={<Dashboard />} />
+              <Route path="empresas" element={<Empresas />} />
+              <Route path="cobradores" element={<Cobradores />} />
+              <Route path="clientes" element={<Clientes />} />
+              <Route path="negociacoes" element={<Negociacoes />} />
+              <Route path="parcelas" element={<Parcelas />} />
+              <Route path="agendamentos" element={<Agendamentos />} />
+              <Route path="relatorios" element={<Relatorios />} />
+              <Route path="configuracoes" element={<Configuracoes />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </EmpresaProvider>
     </AuthProvider>
   );
 }

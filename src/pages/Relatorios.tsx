@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { useEmpresa } from '../contexts/EmpresaContext';
+import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -24,6 +25,7 @@ interface Cobrador { id: string; nome: string; comissao_percentual?: number; }
 
 export default function Relatorios() {
   const { appUser } = useAuth();
+  const { selectedEmpresa } = useEmpresa();
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
@@ -33,7 +35,6 @@ export default function Relatorios() {
     dataInicio: '',
     dataFim: '',
     cliente_id: '',
-    empresa_id: '',
     cobrador_id: ''
   });
 
@@ -51,7 +52,11 @@ export default function Relatorios() {
         comissao_percentual: doc.data().comissao_percentual || 0
       })));
     });
-    const unsubMovimentacoes = onSnapshot(query(collection(db, 'movimentacoes'), orderBy('data', 'desc')), (snapshot) => {
+    
+    if (!selectedEmpresa) return;
+
+    let qMovimentacoes = query(collection(db, 'movimentacoes'), orderBy('data', 'desc'));
+    const unsubMovimentacoes = onSnapshot(qMovimentacoes, (snapshot) => {
       setMovimentacoes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Movimentacao)));
     });
 
@@ -61,7 +66,7 @@ export default function Relatorios() {
       unsubCobradores();
       unsubMovimentacoes();
     };
-  }, []);
+  }, [selectedEmpresa]);
 
   const handlePrint = () => {
     window.print();
@@ -70,8 +75,10 @@ export default function Relatorios() {
   const filteredMovimentacoes = movimentacoes.filter(mov => {
     const cliente = clientes.find(c => c.id === mov.cliente_id);
     
+    // Filtro obrigatório por empresa selecionada
+    if (cliente?.empresa_id !== selectedEmpresa?.id) return false;
+
     if (filtros.cliente_id && mov.cliente_id !== filtros.cliente_id) return false;
-    if (filtros.empresa_id && cliente?.empresa_id !== filtros.empresa_id) return false;
     if (filtros.cobrador_id && mov.cobrador_id !== filtros.cobrador_id) return false;
     
     if (filtros.dataInicio) {
@@ -129,7 +136,7 @@ export default function Relatorios() {
       </div>
 
       <Card className="print:hidden">
-        <div className="p-6 grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="p-6 grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Data Início</label>
             <input
@@ -149,17 +156,6 @@ export default function Relatorios() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
-            <select
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-              value={filtros.empresa_id}
-              onChange={(e) => setFiltros({ ...filtros, empresa_id: e.target.value })}
-            >
-              <option value="">Todas</option>
-              {empresas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-            </select>
-          </div>
-          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
             <select
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
@@ -167,7 +163,7 @@ export default function Relatorios() {
               onChange={(e) => setFiltros({ ...filtros, cliente_id: e.target.value })}
             >
               <option value="">Todos</option>
-              {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              {clientes.filter(c => c.empresa_id === selectedEmpresa?.id).map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </select>
           </div>
           {appUser?.role === 'MASTER' && (

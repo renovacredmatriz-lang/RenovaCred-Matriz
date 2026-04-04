@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useEmpresa } from '../contexts/EmpresaContext';
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, getDocs, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card } from '../components/ui/Card';
@@ -19,29 +20,41 @@ interface Negociacao {
   id: string;
   cliente_id: string;
   cobrador_id: string;
+  empresa_id: string;
 }
 
 interface Cliente {
   id: string;
   nome: string;
+  empresa_id: string;
 }
 
 export default function Parcelas() {
   const { appUser } = useAuth();
+  const { selectedEmpresa } = useEmpresa();
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   const [negociacoes, setNegociacoes] = useState<Negociacao[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
 
   useEffect(() => {
-    const unsubClientes = onSnapshot(collection(db, 'clientes'), (snapshot) => {
-      setClientes(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome } as Cliente)));
+    let qClientes = query(collection(db, 'clientes'));
+    if (selectedEmpresa) {
+      qClientes = query(collection(db, 'clientes'), where('empresa_id', '==', selectedEmpresa.id));
+    }
+    const unsubClientes = onSnapshot(qClientes, (snapshot) => {
+      setClientes(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome, empresa_id: doc.data().empresa_id } as Cliente)));
     });
 
-    const unsubNegociacoes = onSnapshot(collection(db, 'negociacoes'), (snapshot) => {
+    let qNegociacoes = query(collection(db, 'negociacoes'));
+    if (selectedEmpresa) {
+      qNegociacoes = query(collection(db, 'negociacoes'), where('empresa_id', '==', selectedEmpresa.id));
+    }
+    const unsubNegociacoes = onSnapshot(qNegociacoes, (snapshot) => {
       setNegociacoes(snapshot.docs.map(doc => ({ 
         id: doc.id, 
         cliente_id: doc.data().cliente_id,
-        cobrador_id: doc.data().cobrador_id
+        cobrador_id: doc.data().cobrador_id,
+        empresa_id: doc.data().empresa_id
       } as Negociacao)));
     });
 
@@ -53,13 +66,11 @@ export default function Parcelas() {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      let needsUpdate = false;
       const updatedParcelas = fetchedParcelas.map(p => {
         if (p.status === 'PENDENTE') {
           const vencimento = new Date(p.data_vencimento);
           vencimento.setHours(0, 0, 0, 0);
           if (vencimento < today) {
-            needsUpdate = true;
             // Update in DB asynchronously
             updateDoc(doc(db, 'parcelas', p.id), { status: 'ATRASADO' }).catch(console.error);
             return { ...p, status: 'ATRASADO' as const };
@@ -76,7 +87,7 @@ export default function Parcelas() {
       unsubNegociacoes();
       unsubParcelas();
     };
-  }, []);
+  }, [selectedEmpresa]);
 
   const handleMarcarPago = async (parcela: Parcela) => {
     if (!window.confirm('Tem certeza que deseja marcar esta parcela como PAGA? O pagamento deve ser registrado via Nova Negociação -> Pagamento de Parcela.')) {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useEmpresa } from '../contexts/EmpresaContext';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -13,17 +14,20 @@ import {
   LogOut,
   Menu,
   X,
-  ListOrdered
+  ListOrdered,
+  RefreshCw
 } from 'lucide-react';
 import { clsx } from 'clsx';
 
 export default function Layout() {
   const { appUser, logout } = useAuth();
+  const { selectedEmpresa, clearSelectedEmpresa } = useEmpresa();
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
   const handleLogout = async () => {
+    clearSelectedEmpresa();
     await logout();
     navigate('/login');
   };
@@ -65,6 +69,7 @@ export default function Layout() {
             </button>
           </div>
 
+          {/* User Info */}
           <div className="p-4 border-b border-gray-200 flex items-center space-x-3">
             {appUser?.foto_perfil ? (
               <img src={appUser.foto_perfil} alt="Profile" className="w-10 h-10 rounded-full" />
@@ -78,6 +83,28 @@ export default function Layout() {
               <p className="text-xs text-gray-500 truncate">{appUser?.role}</p>
             </div>
           </div>
+
+          {/* Selected Empresa Info */}
+          {selectedEmpresa && (
+            <div className="p-4 bg-blue-50 border-b border-blue-100">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Empresa Selecionada</span>
+                {appUser?.role === 'COBRADOR' && (
+                  <button 
+                    onClick={() => navigate('/selecionar-empresa')}
+                    className="text-blue-600 hover:text-blue-800"
+                    title="Trocar Empresa"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center text-blue-900">
+                <Building2 className="w-4 h-4 mr-2 flex-shrink-0" />
+                <span className="text-sm font-semibold truncate">{selectedEmpresa.nome}</span>
+              </div>
+            </div>
+          )}
 
           <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
             {filteredNav.map((item) => {
@@ -124,7 +151,12 @@ export default function Layout() {
             <Menu className="w-6 h-6" />
           </button>
           <div className="flex items-center space-x-4">
-            {/* Topbar items if needed */}
+            {selectedEmpresa && (
+              <div className="hidden sm:flex items-center px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
+                <Building2 className="w-3 h-3 mr-1.5" />
+                {selectedEmpresa.nome}
+              </div>
+            )}
           </div>
         </header>
         

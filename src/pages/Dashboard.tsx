@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useEmpresa } from '../contexts/EmpresaContext';
 import { Card, CardContent } from '../components/ui/Card';
 import { DollarSign, Calendar, TrendingUp } from 'lucide-react';
 import { collection, query, getDocs, where } from 'firebase/firestore';
@@ -7,6 +8,7 @@ import { db } from '../firebase';
 
 export default function Dashboard() {
   const { appUser } = useAuth();
+  const { selectedEmpresa } = useEmpresa();
   const [stats, setStats] = useState({
     totalNegociado: 0,
     totalRecebido: 0,
@@ -26,9 +28,19 @@ export default function Dashboard() {
       try {
         // Fetch Negociacoes
         let qNegociacoes = query(collection(db, 'negociacoes'));
+        
+        const filters = [];
         if (appUser.role === 'COBRADOR') {
-          qNegociacoes = query(collection(db, 'negociacoes'), where('cobrador_id', '==', appUser.id));
+          filters.push(where('cobrador_id', '==', appUser.id));
         }
+        if (selectedEmpresa) {
+          filters.push(where('empresa_id', '==', selectedEmpresa.id));
+        }
+
+        if (filters.length > 0) {
+          qNegociacoes = query(collection(db, 'negociacoes'), ...filters);
+        }
+
         const negSnapshot = await getDocs(qNegociacoes);
         
         let totalNegociado = 0;
@@ -67,9 +79,19 @@ export default function Dashboard() {
         tomorrow.setDate(tomorrow.getDate() + 1);
 
         let qAgendamentos = query(collection(db, 'agendamentos'));
+        
+        const agendFilters = [];
         if (appUser.role === 'COBRADOR') {
-          qAgendamentos = query(collection(db, 'agendamentos'), where('cobrador_id', '==', appUser.id));
+          agendFilters.push(where('cobrador_id', '==', appUser.id));
         }
+        if (selectedEmpresa) {
+          agendFilters.push(where('empresa_id', '==', selectedEmpresa.id));
+        }
+
+        if (agendFilters.length > 0) {
+          qAgendamentos = query(collection(db, 'agendamentos'), ...agendFilters);
+        }
+
         const agendSnapshot = await getDocs(qAgendamentos);
         
         let agendamentosHoje = 0;
@@ -93,7 +115,7 @@ export default function Dashboard() {
     };
 
     fetchStats();
-  }, [appUser, filtros]);
+  }, [appUser, filtros, selectedEmpresa]);
 
   return (
     <div className="space-y-6">

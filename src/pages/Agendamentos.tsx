@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, onSnapshot, addDoc, updateDoc, doc, query, orderBy, deleteDoc } from 'firebase/firestore';
+import { useEmpresa } from '../contexts/EmpresaContext';
+import { collection, onSnapshot, addDoc, updateDoc, doc, query, orderBy, deleteDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -27,6 +28,7 @@ interface Cliente {
 
 export default function Agendamentos() {
   const { appUser } = useAuth();
+  const { selectedEmpresa } = useEmpresa();
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -38,12 +40,18 @@ export default function Agendamentos() {
   });
 
   useEffect(() => {
-    const qClientes = query(collection(db, 'clientes'), orderBy('nome'));
+    let qClientes = query(collection(db, 'clientes'), orderBy('nome'));
+    if (selectedEmpresa) {
+      qClientes = query(collection(db, 'clientes'), where('empresa_id', '==', selectedEmpresa.id), orderBy('nome'));
+    }
     const unsubClientes = onSnapshot(qClientes, (snapshot) => {
       setClientes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente)));
     });
 
-    const qAgendamentos = query(collection(db, 'agendamentos'), orderBy('data_agendamento', 'asc'));
+    let qAgendamentos = query(collection(db, 'agendamentos'), orderBy('data_agendamento', 'asc'));
+    if (selectedEmpresa) {
+      qAgendamentos = query(collection(db, 'agendamentos'), where('empresa_id', '==', selectedEmpresa.id), orderBy('data_agendamento', 'asc'));
+    }
     const unsubAgendamentos = onSnapshot(qAgendamentos, (snapshot) => {
       setAgendamentos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Agendamento)));
     });
@@ -52,7 +60,7 @@ export default function Agendamentos() {
       unsubClientes();
       unsubAgendamentos();
     };
-  }, []);
+  }, [selectedEmpresa]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

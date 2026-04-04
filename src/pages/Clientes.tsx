@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { useEmpresa } from '../contexts/EmpresaContext';
+import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -30,15 +31,14 @@ interface Empresa {
 
 export default function Clientes() {
   const { appUser } = useAuth();
+  const { selectedEmpresa } = useEmpresa();
   const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null);
   const [historicoCliente, setHistoricoCliente] = useState<Cliente | null>(null);
   
   const [formData, setFormData] = useState({
     codigo: '',
-    empresa_id: '',
     nome: '',
     endereco: '',
     telefone1: '',
@@ -49,29 +49,28 @@ export default function Clientes() {
   });
 
   useEffect(() => {
-    const qEmpresas = query(collection(db, 'empresas'), orderBy('nome'));
-    const unsubEmpresas = onSnapshot(qEmpresas, (snapshot) => {
-      setEmpresas(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome })));
-    });
+    if (!selectedEmpresa) return;
 
-    const qClientes = query(collection(db, 'clientes'), orderBy('createdAt', 'desc'));
+    let qClientes = query(collection(db, 'clientes'), where('empresa_id', '==', selectedEmpresa.id), orderBy('createdAt', 'desc'));
+    
     const unsubClientes = onSnapshot(qClientes, (snapshot) => {
       setClientes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente)));
     });
 
     return () => {
-      unsubEmpresas();
       unsubClientes();
     };
-  }, []);
+  }, [selectedEmpresa]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedEmpresa) return;
+
     try {
       // Check for duplicate code in the same company
       const isDuplicate = clientes.some(c => 
         c.codigo === formData.codigo && 
-        c.empresa_id === formData.empresa_id && 
+        c.empresa_id === selectedEmpresa.id && 
         c.id !== editingCliente?.id
       );
 
@@ -80,15 +79,20 @@ export default function Clientes() {
         return;
       }
 
+      const payload = {
+        ...formData,
+        empresa_id: selectedEmpresa.id
+      };
+
       if (editingCliente) {
-        await updateDoc(doc(db, 'clientes', editingCliente.id), formData);
-        logAction(appUser, 'EDITAR_CLIENTE', 'cliente', editingCliente.id, formData);
+        await updateDoc(doc(db, 'clientes', editingCliente.id), payload);
+        logAction(appUser, 'EDITAR_CLIENTE', 'cliente', editingCliente.id, payload);
       } else {
         const docRef = await addDoc(collection(db, 'clientes'), {
-          ...formData,
+          ...payload,
           createdAt: new Date().toISOString()
         });
-        logAction(appUser, 'CRIAR_CLIENTE', 'cliente', docRef.id, formData);
+        logAction(appUser, 'CRIAR_CLIENTE', 'cliente', docRef.id, payload);
       }
       setIsModalOpen(false);
       setEditingCliente(null);
@@ -118,7 +122,6 @@ export default function Clientes() {
   const resetForm = () => {
     setFormData({
       codigo: '',
-      empresa_id: empresas.length > 0 ? empresas[0].id : '',
       nome: '',
       endereco: '',
       telefone1: '',
@@ -133,8 +136,6 @@ export default function Clientes() {
     resetForm();
     setIsModalOpen(true);
   };
-
-  const getEmpresaNome = (id: string) => empresas.find(e => e.id === id)?.nome || 'Desconhecida';
 
   return (
     <div className="space-y-6">
@@ -167,7 +168,7 @@ export default function Clientes() {
                 <tr key={cliente.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cliente.codigo}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{cliente.nome}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{getEmpresaNome(cliente.empresa_id)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{selectedEmpresa?.nome}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cliente.telefone1}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cliente.valor_debito)}
@@ -185,7 +186,6 @@ export default function Clientes() {
                         setEditingCliente(cliente);
                         setFormData({
                           codigo: cliente.codigo,
-                          empresa_id: cliente.empresa_id,
                           nome: cliente.nome,
                           endereco: cliente.endereco,
                           telefone1: cliente.telefone1,
@@ -253,20 +253,6 @@ export default function Clientes() {
                   onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
                   required
                 />
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
-                  <select
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                    value={formData.empresa_id}
-                    onChange={(e) => setFormData({ ...formData, empresa_id: e.target.value })}
-                    required
-                  >
-                    <option value="">Selecione uma empresa</option>
-                    {empresas.map(emp => (
-                      <option key={emp.id} value={emp.id}>{emp.nome}</option>
-                    ))}
-                  </select>
-                </div>
                 
                 <div className="md:col-span-2">
                   <Input

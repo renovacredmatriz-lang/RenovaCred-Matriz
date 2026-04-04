@@ -1,9 +1,12 @@
 import React from 'react';
 import { clsx } from 'clsx';
 
-export function Card({ children, className }: { children: React.ReactNode; className?: string }) {
+export function Card({ children, className, onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
   return (
-    <div className={clsx("bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden", className)}>
+    <div 
+      className={clsx("bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden", className)}
+      onClick={onClick}
+    >
       {children}
     </div>
   );
