@@ -71,7 +71,10 @@ export default function Relatorios() {
     }
 
     const unsubMovimentacoes = onSnapshot(qMovimentacoes, (snapshot) => {
-      setMovimentacoes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Movimentacao)));
+      const validMovimentacoes = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Movimentacao))
+        .filter(m => m.empresaId);
+      setMovimentacoes(validMovimentacoes);
     });
 
     return () => {
@@ -163,7 +166,7 @@ export default function Relatorios() {
       <Card className="print:hidden">
         <div className="p-6 grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Data Início</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Data Inicial</label>
             <input
               type="date"
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
@@ -172,7 +175,7 @@ export default function Relatorios() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Data Fim</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Data Final</label>
             <input
               type="date"
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
@@ -191,7 +194,7 @@ export default function Relatorios() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Cliente (Lista)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
             <select
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
               value={filtros.cliente_id}

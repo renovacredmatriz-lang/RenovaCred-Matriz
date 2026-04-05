@@ -11,6 +11,7 @@ interface Parcela {
   id: string;
   negociacao_id: string;
   empresaId: string;
+  uid?: string;
   numero_parcela: number;
   valor: number;
   status: 'PENDENTE' | 'PAGO' | 'ATRASADO';
@@ -75,8 +76,10 @@ export default function Parcelas() {
           const vencimento = new Date(p.data_vencimento);
           vencimento.setHours(0, 0, 0, 0);
           if (vencimento < today) {
-            // Update in DB asynchronously
-            updateDoc(doc(db, 'parcelas', p.id), { status: 'ATRASADO' }).catch(console.error);
+            // Update in DB asynchronously only if the user is the owner
+            if (appUser?.role === 'COBRADOR' && p.uid === appUser?.uid) {
+              updateDoc(doc(db, 'parcelas', p.id), { status: 'ATRASADO' }).catch(console.error);
+            }
             return { ...p, status: 'ATRASADO' as const };
           }
         }
@@ -94,6 +97,10 @@ export default function Parcelas() {
   }, [selectedEmpresa]);
 
   const handleMarcarPago = async (parcela: Parcela) => {
+    if (appUser?.role !== 'COBRADOR') {
+      alert('Apenas cobradores podem marcar parcelas como pagas.');
+      return;
+    }
     if (!window.confirm('Tem certeza que deseja marcar esta parcela como PAGA? O pagamento deve ser registrado via Nova Negociação -> Pagamento de Parcela.')) {
       return;
     }

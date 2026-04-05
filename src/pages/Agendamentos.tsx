@@ -49,7 +49,10 @@ export default function Agendamentos() {
       qClientes = query(collection(db, 'clientes'), where('empresaId', '==', selectedEmpresa.id), orderBy('nome'));
     }
     const unsubClientes = onSnapshot(qClientes, (snapshot) => {
-      setClientes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente)));
+      const validClientes = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Cliente))
+        .filter(c => c.empresaId);
+      setClientes(validClientes);
     });
     
     let qAgendamentos;
@@ -60,7 +63,10 @@ export default function Agendamentos() {
       qAgendamentos = query(collection(db, 'agendamentos'), where('empresaId', '==', selectedEmpresa.id), orderBy('data_agendamento', 'asc'));
     }
     const unsubAgendamentos = onSnapshot(qAgendamentos, (snapshot) => {
-      setAgendamentos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Agendamento)));
+      const validAgendamentos = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Agendamento))
+        .filter(a => a.empresaId);
+      setAgendamentos(validAgendamentos);
     });
 
     return () => {
@@ -81,7 +87,7 @@ export default function Agendamentos() {
         cliente_id: cliente.id,
         empresaId: selectedEmpresa?.id || cliente.empresaId,
         cobrador_id: appUser.id,
-        uid: appUser.id,
+        uid: appUser.uid,
         data_agendamento: new Date(formData.data_agendamento).toISOString(),
         observacoes: formData.observacoes,
         status: 'PENDENTE',
@@ -103,22 +109,6 @@ export default function Agendamentos() {
     } catch (error) {
       console.error("Error updating agendamento:", error);
       alert("Erro ao concluir agendamento.");
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (appUser?.role !== 'MASTER') {
-      alert("Apenas administradores podem excluir agendamentos.");
-      return;
-    }
-    if (window.confirm('Tem certeza que deseja excluir este agendamento?')) {
-      try {
-        await deleteDoc(doc(db, 'agendamentos', id));
-        logAction(appUser, 'EXCLUIR_AGENDAMENTO', 'agendamento', id, {});
-      } catch (error) {
-        console.error("Error deleting agendamento:", error);
-        alert("Erro ao excluir agendamento.");
-      }
     }
   };
 

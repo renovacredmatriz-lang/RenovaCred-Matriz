@@ -54,7 +54,10 @@ export default function Negociacoes() {
     }
     
     const unsubClientes = onSnapshot(qClientes, (snapshot) => {
-      setClientes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente)));
+      const validClientes = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Cliente))
+        .filter(c => c.empresaId);
+      setClientes(validClientes);
     });
 
     let qNegociacoes = query(collection(db, 'negociacoes'), orderBy('createdAt', 'desc'));
@@ -63,7 +66,10 @@ export default function Negociacoes() {
     }
 
     const unsubNegociacoes = onSnapshot(qNegociacoes, (snapshot) => {
-      setNegociacoes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Negociacao)));
+      const validNegociacoes = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Negociacao))
+        .filter(n => n.empresaId);
+      setNegociacoes(validNegociacoes);
     });
 
     return () => {
@@ -118,7 +124,7 @@ export default function Negociacoes() {
           cliente_id: cliente.id,
           empresaId: selectedEmpresa?.id || cliente.empresaId,
           cobrador_id: appUser.id,
-          uid: appUser.id,
+          uid: appUser.uid,
           tipo: formData.tipo,
           valor: valorTotalNegociado,
           valor_entrada: formData.valor_entrada,
@@ -135,7 +141,7 @@ export default function Negociacoes() {
             cliente_id: cliente.id,
             negociacao_id: newNegociacaoRef.id,
             empresaId: selectedEmpresa?.id || cliente.empresaId,
-            uid: appUser.id,
+            uid: appUser.uid,
             tipo: 'PAGAMENTO',
             valor: valorPago,
             saldo_anterior: debitoAtual,
@@ -158,7 +164,7 @@ export default function Negociacoes() {
             transaction.set(parcelaRef, {
               negociacao_id: newNegociacaoRef.id,
               empresaId: selectedEmpresa?.id || cliente.empresaId,
-              uid: appUser.id,
+              uid: appUser.uid,
               numero_parcela: i,
               valor: valorParcela,
               status: 'PENDENTE',
@@ -227,7 +233,7 @@ export default function Negociacoes() {
             cliente_id: negociacao.cliente_id,
             negociacao_id: negociacao.id,
             empresaId: selectedEmpresa?.id || negociacao.empresaId,
-            uid: appUser.id,
+            uid: appUser.uid,
             tipo: 'ESTORNO',
             valor: valorRevertido,
             saldo_anterior: debitoAtual,

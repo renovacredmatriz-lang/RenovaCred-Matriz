@@ -59,7 +59,10 @@ export default function Clientes() {
     }
     
     const unsubClientes = onSnapshot(qClientes, (snapshot) => {
-      setClientes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente)));
+      const validClientes = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Cliente))
+        .filter(c => c.empresaId); // Filter out invalid documents
+      setClientes(validClientes);
     });
 
     return () => {
@@ -87,7 +90,7 @@ export default function Clientes() {
       const payload = {
         ...formData,
         empresaId: selectedEmpresa.id,
-        uid: appUser.id
+        uid: appUser.uid
       };
 
       if (editingCliente) {
@@ -106,22 +109,6 @@ export default function Clientes() {
     } catch (error) {
       console.error("Error saving cliente:", error);
       alert("Erro ao salvar cliente.");
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (appUser?.role !== 'MASTER') {
-      alert("Apenas administradores podem excluir clientes.");
-      return;
-    }
-    if (window.confirm('Tem certeza que deseja excluir este cliente?')) {
-      try {
-        await deleteDoc(doc(db, 'clientes', id));
-        logAction(appUser, 'EXCLUIR_CLIENTE', 'cliente', id, {});
-      } catch (error) {
-        console.error("Error deleting cliente:", error);
-        alert("Erro ao excluir cliente.");
-      }
     }
   };
 
@@ -148,7 +135,7 @@ export default function Clientes() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Clientes</h1>
-          <p className="mt-1 text-sm text-gray-500">Gerenciamento de clientes e devedores.</p>
+          <p className="mt-1 text-sm text-gray-500">Gerenciamento de clientes</p>
         </div>
         {appUser?.role !== 'MASTER' && (
           <Button onClick={openNewModal}>
