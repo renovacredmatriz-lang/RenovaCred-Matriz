@@ -19,6 +19,8 @@ interface Negociacao {
   valor: number;
   valor_entrada?: number;
   numero_parcelas?: number;
+  tipoJuros?: string;
+  valorJuros?: number;
   observacoes?: string;
   status: 'ATIVO' | 'ESTORNADO';
   createdAt: string;
@@ -32,7 +34,7 @@ interface Cliente {
 }
 
 export default function Negociacoes() {
-  const { appUser } = useAuth();
+  const { appUser, currentUser } = useAuth();
   const { selectedEmpresa } = useEmpresa();
   const [negociacoes, setNegociacoes] = useState<Negociacao[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -44,6 +46,8 @@ export default function Negociacoes() {
     valor: 0,
     valor_entrada: 0,
     numero_parcelas: 1,
+    tipoJuros: 'NENHUM',
+    valorJuros: 0,
     observacoes: ''
   });
 
@@ -80,6 +84,17 @@ export default function Negociacoes() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!selectedEmpresa?.id) {
+      alert("Selecione uma empresa antes de continuar");
+      return;
+    }
+
+    if (!currentUser?.uid) {
+      alert("Usuário não autenticado");
+      return;
+    }
+
     if (!appUser || appUser.role !== 'COBRADOR') {
       alert("Apenas cobradores podem registrar negociações.");
       return;
@@ -87,6 +102,24 @@ export default function Negociacoes() {
 
     const cliente = clientes.find(c => c.id === formData.cliente_id);
     if (!cliente) return;
+
+    const payload = {
+      cliente_id: cliente.id,
+      empresaId: selectedEmpresa.id,
+      uid: currentUser.uid,
+      cobrador_id: appUser.id,
+      tipo: formData.tipo,
+      valor: formData.valor,
+      valor_entrada: formData.valor_entrada,
+      numero_parcelas: formData.numero_parcelas,
+      tipoJuros: formData.tipoJuros,
+      valorJuros: formData.valorJuros,
+      observacoes: formData.observacoes,
+      status: 'ATIVO',
+      createdAt: new Date().toISOString()
+    };
+
+    console.log("PAYLOAD NEGOCIACAO:", payload);
 
     try {
       const negociacaoId = await runTransaction(db, async (transaction) => {
@@ -104,6 +137,7 @@ export default function Negociacoes() {
         if (formData.tipo === 'QUITACAO') {
           valorPago = debitoAtual;
           valorTotalNegociado = debitoAtual;
+          payload.valor = debitoAtual;
         } else if (formData.tipo === 'PARCELAMENTO') {
           valorPago = formData.valor_entrada;
         } else if (formData.tipo === 'PARCELA' || formData.tipo === 'RESGATE') {
@@ -120,19 +154,7 @@ export default function Negociacoes() {
 
         // Create negotiation
         const newNegociacaoRef = doc(collection(db, 'negociacoes'));
-        transaction.set(newNegociacaoRef, {
-          cliente_id: cliente.id,
-          empresaId: selectedEmpresa?.id || cliente.empresaId,
-          cobrador_id: appUser.id,
-          uid: appUser.uid,
-          tipo: formData.tipo,
-          valor: valorTotalNegociado,
-          valor_entrada: formData.valor_entrada,
-          numero_parcelas: formData.numero_parcelas,
-          observacoes: formData.observacoes,
-          status: 'ATIVO',
-          createdAt: new Date().toISOString()
-        });
+        transaction.set(newNegociacaoRef, payload);
 
         // Create Movimentacao (Ledger)
         if (valorPago > 0) {
@@ -140,8 +162,8 @@ export default function Negociacoes() {
           transaction.set(movRef, {
             cliente_id: cliente.id,
             negociacao_id: newNegociacaoRef.id,
-            empresaId: selectedEmpresa?.id || cliente.empresaId,
-            uid: appUser.uid,
+            empresaId: selectedEmpresa.id,
+            uid: currentUser.uid,
             tipo: 'PAGAMENTO',
             valor: valorPago,
             saldo_anterior: debitoAtual,
@@ -163,8 +185,8 @@ export default function Negociacoes() {
             
             transaction.set(parcelaRef, {
               negociacao_id: newNegociacaoRef.id,
-              empresaId: selectedEmpresa?.id || cliente.empresaId,
-              uid: appUser.uid,
+              empresaId: selectedEmpresa.id,
+              uid: currentUser.uid,
               numero_parcela: i,
               valor: valorParcela,
               status: 'PENDENTE',
@@ -263,6 +285,8 @@ export default function Negociacoes() {
       valor: 0,
       valor_entrada: 0,
       numero_parcelas: 1,
+      tipoJuros: 'NENHUM',
+      valorJuros: 0,
       observacoes: ''
     });
   };
@@ -429,6 +453,40 @@ export default function Negociacoes() {
                   />
                 </>
               )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Juros</label>
+                  <select
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                    value={formData.tipoJuros}
+                    onChange={(e) => setFormData({ ...formData, tipoJuros: e.target.value })}
+                  >
+                    <option value="NENHUM">Nenhum</option>
+                    <option value="PERCENTUAL">Percentual (%)</option>
+                    <option value="FIXO">Valor Fixo (R$)</option>
+                  </select>
+                </div>
+                <Input
+                  label="Valor Juros"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.valorJuros}
+                  onChange={(e) => setFormData({ ...formData, valorJuros: parseFloat(e.target.value) })}
+                  disabled={formData.tipoJuros === 'NENHUM'}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
+                <textarea
+                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                  rows={3}
+                  value={formData.observacoes}
+                  onChange={(e) => setFormData({ ...formData, observacoes: e.target.value })}
+                />
+              </div>
 
               <div className="pt-4 flex justify-end space-x-3 border-t border-gray-200 mt-6">
                 <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>
