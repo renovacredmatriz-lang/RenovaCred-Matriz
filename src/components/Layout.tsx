@@ -85,19 +85,17 @@ export default function Layout() {
           </div>
 
           {/* Selected Empresa Info */}
-          {selectedEmpresa && (
+          {selectedEmpresa && appUser?.role !== 'MASTER' && (
             <div className="p-4 bg-blue-50 border-b border-blue-100">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Empresa Selecionada</span>
-                {appUser?.role === 'COBRADOR' && (
-                  <button 
-                    onClick={() => navigate('/selecionar-empresa')}
-                    className="text-blue-600 hover:text-blue-800"
-                    title="Trocar Empresa"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                  </button>
-                )}
+                <button 
+                  onClick={() => navigate('/selecionar-empresa')}
+                  className="text-blue-600 hover:text-blue-800"
+                  title="Trocar Empresa"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                </button>
               </div>
               <div className="flex items-center text-blue-900">
                 <Building2 className="w-4 h-4 mr-2 flex-shrink-0" />
@@ -151,7 +149,7 @@ export default function Layout() {
             <Menu className="w-6 h-6" />
           </button>
           <div className="flex items-center space-x-4">
-            {selectedEmpresa && (
+            {selectedEmpresa && appUser?.role !== 'MASTER' && (
               <div className="hidden sm:flex items-center px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
                 <Building2 className="w-3 h-3 mr-1.5" />
                 {selectedEmpresa.nome}

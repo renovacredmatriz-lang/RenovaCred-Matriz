@@ -22,6 +22,11 @@ export default function SelecaoEmpresa() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (appUser?.role === 'MASTER') {
+      navigate('/');
+      return;
+    }
+
     const fetchEmpresas = async () => {
       try {
         // Por enquanto, listamos todas as empresas ativas.

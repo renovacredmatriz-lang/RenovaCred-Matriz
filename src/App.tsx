@@ -17,9 +17,15 @@ import SelecaoEmpresa from './pages/SelecaoEmpresa';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { currentUser, appUser, loading } = useAuth();
-  const { selectedEmpresa } = useEmpresa();
+  const { selectedEmpresa, clearSelectedEmpresa } = useEmpresa();
   const location = useLocation();
   
+  React.useEffect(() => {
+    if (appUser?.role === 'MASTER' && selectedEmpresa) {
+      clearSelectedEmpresa();
+    }
+  }, [appUser, selectedEmpresa, clearSelectedEmpresa]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
