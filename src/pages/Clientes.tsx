@@ -31,7 +31,7 @@ interface Empresa {
 }
 
 export default function Clientes() {
-  const { appUser } = useAuth();
+  const { appUser, currentUser } = useAuth();
   const { selectedEmpresa } = useEmpresa();
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -72,7 +72,21 @@ export default function Clientes() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEmpresa || !appUser) return;
+    
+    if (!selectedEmpresa) {
+      alert("Selecione uma empresa antes de continuar");
+      return;
+    }
+
+    if (!currentUser?.uid) {
+      alert("Usuário não autenticado corretamente.");
+      return;
+    }
+
+    if (appUser?.role === 'MASTER') {
+      alert("Usuários MASTER não podem criar ou editar clientes.");
+      return;
+    }
 
     try {
       // Check for duplicate code in the same company
@@ -90,8 +104,13 @@ export default function Clientes() {
       const payload = {
         ...formData,
         empresaId: selectedEmpresa.id,
-        uid: appUser.uid
+        uid: currentUser.uid
       };
+
+      console.log("AUTH USER:", currentUser);
+      console.log("APP USER:", appUser);
+      console.log("EMPRESA:", selectedEmpresa);
+      console.log("PAYLOAD FINAL:", payload);
 
       if (editingCliente) {
         await updateDoc(doc(db, 'clientes', editingCliente.id), payload);
@@ -106,9 +125,9 @@ export default function Clientes() {
       setIsModalOpen(false);
       setEditingCliente(null);
       resetForm();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving cliente:", error);
-      alert("Erro ao salvar cliente.");
+      alert("Erro ao salvar cliente: " + error.message);
     }
   };
 
