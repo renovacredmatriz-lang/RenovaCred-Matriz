@@ -164,8 +164,8 @@ export default function Cobradores() {
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col" style={{ maxHeight: '90vh' }}>
+            <div className="flex justify-between items-center p-6 border-b border-gray-200 shrink-0">
               <h3 className="text-lg font-medium text-gray-900">
                 {editingCobrador ? 'Editar Cobrador' : 'Novo Cobrador'}
               </h3>
@@ -173,51 +173,53 @@ export default function Cobradores() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <Input
-                label="Nome do Cobrador"
-                value={formData.nome}
-                onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
-                required
-              />
-              <Input
-                label="Email (para login)"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                required
-              />
-              <Input
-                label="Comissão (%)"
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={formData.comissao_percentual}
-                onChange={(e) => setFormData({ ...formData, comissao_percentual: parseFloat(e.target.value) })}
-                required
-              />
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="ativo"
-                  checked={formData.ativo}
-                  onChange={(e) => setFormData({ ...formData, ativo: e.target.checked })}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            <div className="overflow-y-auto p-6">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <Input
+                  label="Nome do Cobrador"
+                  value={formData.nome}
+                  onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+                  required
                 />
-                <label htmlFor="ativo" className="ml-2 block text-sm text-gray-900">
-                  Cobrador Ativo
-                </label>
-              </div>
-              <div className="pt-4 flex justify-end space-x-3">
-                <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button type="submit">
-                  Salvar
-                </Button>
-              </div>
-            </form>
+                <Input
+                  label="Email (para login)"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                />
+                <Input
+                  label="Comissão (%)"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={formData.comissao_percentual}
+                  onChange={(e) => setFormData({ ...formData, comissao_percentual: parseFloat(e.target.value) })}
+                  required
+                />
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="ativo"
+                    checked={formData.ativo}
+                    onChange={(e) => setFormData({ ...formData, ativo: e.target.checked })}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="ativo" className="ml-2 block text-sm text-gray-900">
+                    Cobrador Ativo
+                  </label>
+                </div>
+                <div className="pt-4 flex justify-end space-x-3 mt-6 shrink-0 border-t border-gray-200">
+                  <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit">
+                    Salvar
+                  </Button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}

@@ -54,42 +54,50 @@ service cloud.firestore {
     }
     
     match /clientes/{docId} {
+      allow read: if isAuthenticated();
       allow create: if request.auth != null
-        && request.resource.data.uid == request.auth.uid
+        && request.auth.uid == request.resource.data.uid
         && request.resource.data.empresaId != null;
-
-      allow read: if request.auth != null;
-
       allow update, delete: if request.auth != null
-        && resource.data.uid == request.auth.uid;
+        && request.auth.uid == resource.data.uid
+        && resource.data.empresaId != null;
     }
     
     match /negociacoes/{negociacaoId} {
       allow read: if isAuthenticated();
-      allow create: if isCobrador() && 
-                    request.resource.data.empresaId != null &&
-                    request.resource.data.uid == request.auth.uid;
-      allow update, delete: if isCobrador() && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.uid
+        && request.resource.data.empresaId != null;
+      allow update, delete: if request.auth != null
+        && request.auth.uid == resource.data.uid
+        && resource.data.empresaId != null;
     }
     
     match /parcelas/{parcelaId} {
       allow read: if isAuthenticated();
-      allow create, update, delete: if isCobrador();
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.uid
+        && request.resource.data.empresaId != null;
+      allow update, delete: if request.auth != null
+        && request.auth.uid == resource.data.uid
+        && resource.data.empresaId != null;
     }
     
     match /agendamentos/{agendamentoId} {
       allow read: if isAuthenticated();
-      allow create, update: if isCobrador() && 
-                            request.resource.data.empresaId != null &&
-                            request.resource.data.uid == request.auth.uid;
-      allow delete: if isCobrador() && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.uid
+        && request.resource.data.empresaId != null;
+      allow update, delete: if request.auth != null
+        && request.auth.uid == resource.data.uid
+        && resource.data.empresaId != null;
     }
 
     match /movimentacoes/{movimentacaoId} {
       allow read: if isAuthenticated();
-      allow create: if isCobrador() && 
-                    request.resource.data.empresaId != null &&
-                    request.resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.uid
+        && request.resource.data.empresaId != null;
       allow update, delete: if false; // Immutable ledger
     }
 

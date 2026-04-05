@@ -180,16 +180,8 @@ export default function Negociacoes() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedEmpresa?.id) {
-      alert("Selecione uma empresa antes de continuar");
-      return;
-    }
-
-    if (!currentUser?.uid) {
-      alert("Usuário não autenticado");
-      return;
-    }
-
+    if (!currentUser?.uid) throw new Error("Usuário não autenticado");
+    if (!selectedEmpresa?.id) throw new Error("Empresa não selecionada");
     if (!appUser || appUser.role !== 'COBRADOR') {
       alert("Apenas cobradores podem registrar negociações.");
       return;
@@ -235,9 +227,8 @@ export default function Negociacoes() {
       ...(formData.tipo === 'PARCELA' ? { parcela_id: parcelaSelecionadaId } : {})
     };
 
-    console.log("CLIENTE:", cliente);
-    console.log("NEGOCIACAO:", payload);
-    console.log("PARCELAS:", parcelasGeradas);
+    console.log("PAYLOAD NEGOCIACAO:", payload);
+    console.log("PAYLOAD PARCELAS:", parcelasGeradas);
 
     try {
       const negociacaoId = await runTransaction(db, async (transaction) => {
@@ -261,7 +252,11 @@ export default function Negociacoes() {
           if (!parcelaDoc.exists()) throw new Error("Parcela não encontrada!");
           
           valorPago = parcelaDoc.data().valor;
-          transaction.update(parcelaRef, { status: 'PAGO' });
+          transaction.update(parcelaRef, { 
+            status: 'PAGO',
+            uid: currentUser.uid,
+            empresaId: selectedEmpresa.id
+          });
           
           const hoje = new Date().toISOString().split('T')[0];
           const vencimento = new Date(parcelaDoc.data().data_vencimento).toISOString().split('T')[0];
@@ -282,7 +277,11 @@ export default function Negociacoes() {
         console.log("SALDO FINAL:", novoDebito);
 
         // Update client debt
-        transaction.update(clienteRef, { valor_debito: Math.max(0, novoDebito) });
+        transaction.update(clienteRef, { 
+          valor_debito: Math.max(0, novoDebito),
+          uid: currentUser.uid,
+          empresaId: selectedEmpresa.id
+        });
 
         // Create negotiation
         const newNegociacaoRef = doc(collection(db, 'negociacoes'));
@@ -291,7 +290,7 @@ export default function Negociacoes() {
         // Create Movimentacao (Ledger)
         if (valorPago > 0) {
           const movRef = doc(collection(db, 'movimentacoes'));
-          transaction.set(movRef, {
+          const movimentacao = {
             cliente_id: cliente.id,
             negociacao_id: newNegociacaoRef.id,
             empresaId: selectedEmpresa.id,
@@ -302,7 +301,9 @@ export default function Negociacoes() {
             saldo_atual: Math.max(0, novoDebito),
             data: new Date().toISOString(),
             cobrador_id: appUser.id
-          });
+          };
+          console.log("MOVIMENTACAO:", movimentacao);
+          transaction.set(movRef, movimentacao);
         }
 
         // Create Parcelas
@@ -345,6 +346,8 @@ export default function Negociacoes() {
   };
 
   const handleEstorno = async (negociacao: Negociacao) => {
+    if (!currentUser?.uid) throw new Error("Usuário não autenticado");
+    if (!selectedEmpresa?.id) throw new Error("Empresa não selecionada");
     if (!appUser || appUser.role !== 'COBRADOR') return;
     if (negociacao.status === 'ESTORNADO') return;
     
@@ -379,38 +382,56 @@ export default function Negociacoes() {
         let novoDebito = debitoAtual + valorRevertido;
 
         // Update client debt
-        transaction.update(clienteRef, { valor_debito: Math.max(0, novoDebito) });
+        transaction.update(clienteRef, { 
+          valor_debito: Math.max(0, novoDebito),
+          uid: currentUser.uid,
+          empresaId: selectedEmpresa.id
+        });
 
         // Update negotiation status
         const negRef = doc(db, 'negociacoes', negociacao.id);
-        transaction.update(negRef, { status: 'ESTORNADO' });
+        transaction.update(negRef, { 
+          status: 'ESTORNADO',
+          uid: currentUser.uid,
+          empresaId: selectedEmpresa.id
+        });
 
         // Update parcelas status
         for (const pid of parcelasIds) {
           const pRef = doc(db, 'parcelas', pid);
-          transaction.update(pRef, { status: 'ESTORNADO' });
+          transaction.update(pRef, { 
+            status: 'ESTORNADO',
+            uid: currentUser.uid,
+            empresaId: selectedEmpresa.id
+          });
         }
 
         if (negociacao.tipo === 'PARCELA' && negociacao.parcela_id) {
           const pRef = doc(db, 'parcelas', negociacao.parcela_id);
-          transaction.update(pRef, { status: 'PENDENTE' });
+          transaction.update(pRef, { 
+            status: 'PENDENTE',
+            uid: currentUser.uid,
+            empresaId: selectedEmpresa.id
+          });
         }
 
         // Create Movimentacao (Estorno)
         if (valorRevertido > 0) {
           const movRef = doc(collection(db, 'movimentacoes'));
-          transaction.set(movRef, {
+          const movimentacao = {
             cliente_id: negociacao.cliente_id,
             negociacao_id: negociacao.id,
-            empresaId: selectedEmpresa?.id || negociacao.empresaId,
-            uid: currentUser?.uid,
+            empresaId: selectedEmpresa.id,
+            uid: currentUser.uid,
             tipo: 'ESTORNO',
             valor: valorRevertido,
             saldo_anterior: debitoAtual,
             saldo_atual: Math.max(0, novoDebito),
             data: new Date().toISOString(),
             cobrador_id: appUser.id
-          });
+          };
+          console.log("MOVIMENTACAO:", movimentacao);
+          transaction.set(movRef, movimentacao);
         }
       });
 

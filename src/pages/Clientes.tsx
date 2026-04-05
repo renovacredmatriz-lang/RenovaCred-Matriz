@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useEmpresa } from '../contexts/EmpresaContext';
-import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -19,8 +19,6 @@ interface Cliente {
   telefone1: string;
   telefone2?: string;
   valor_debito: number;
-  juros_tipo: 'PERCENTUAL' | 'FIXO' | 'NENHUM';
-  juros_valor: number;
   createdAt: string;
   uid?: string;
 }
@@ -45,8 +43,6 @@ export default function Clientes() {
     telefone1: '',
     telefone2: '',
     valor_debito: 0,
-    juros_tipo: 'NENHUM' as 'PERCENTUAL' | 'FIXO' | 'NENHUM',
-    juros_valor: 0,
   });
 
   useEffect(() => {
@@ -139,9 +135,27 @@ export default function Clientes() {
       telefone1: '',
       telefone2: '',
       valor_debito: 0,
-      juros_tipo: 'NENHUM',
-      juros_valor: 0,
     });
+  };
+
+  const handleDelete = async (cliente: Cliente) => {
+    if (!window.confirm("Tem certeza que deseja excluir este cliente?")) return;
+    
+    try {
+      const qNeg = query(collection(db, 'negociacoes'), where('cliente_id', '==', cliente.id));
+      const snap = await getDocs(qNeg);
+      if (!snap.empty) {
+        alert("Não é possível excluir este cliente pois existem negociações vinculadas a ele.");
+        return;
+      }
+
+      await deleteDoc(doc(db, 'clientes', cliente.id));
+      logAction(appUser, 'EXCLUIR_CLIENTE', 'cliente', cliente.id, { nome: cliente.nome });
+      alert("Cliente excluído com sucesso!");
+    } catch (error: any) {
+      console.error("Erro ao excluir cliente:", error);
+      alert("Erro ao excluir cliente: " + error.message);
+    }
   };
 
   const openNewModal = () => {
@@ -207,8 +221,6 @@ export default function Clientes() {
                               telefone1: cliente.telefone1,
                               telefone2: cliente.telefone2 || '',
                               valor_debito: cliente.valor_debito,
-                              juros_tipo: cliente.juros_tipo,
-                              juros_valor: cliente.juros_valor,
                             });
                             setIsModalOpen(true);
                           }}
@@ -216,6 +228,13 @@ export default function Clientes() {
                           title="Editar"
                         >
                           <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(cliente)}
+                          className="text-red-600 hover:text-red-900"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </>
                     )}
@@ -244,9 +263,9 @@ export default function Clientes() {
 
       {/* Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden my-8">
-            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
+            <div className="flex justify-between items-center p-6 border-b border-gray-200 shrink-0">
               <h3 className="text-lg font-medium text-gray-900">
                 {editingCliente ? 'Editar Cliente' : 'Novo Cliente'}
               </h3>
@@ -254,89 +273,67 @@ export default function Clientes() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="Código do Cliente"
-                  value={formData.codigo}
-                  onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
-                  required
-                />
-                
-                <div className="md:col-span-2">
+            <div className="overflow-y-auto p-6">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input
-                    label="Nome Completo"
-                    value={formData.nome}
-                    onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+                    label="Código do Cliente"
+                    value={formData.codigo}
+                    onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
                     required
                   />
-                </div>
-
-                <div className="md:col-span-2">
-                  <Input
-                    label="Endereço"
-                    value={formData.endereco}
-                    onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <Input
-                  label="Telefone 1"
-                  value={formData.telefone1}
-                  onChange={(e) => setFormData({ ...formData, telefone1: e.target.value })}
-                  required
-                />
-                <Input
-                  label="Telefone 2 (Opcional)"
-                  value={formData.telefone2}
-                  onChange={(e) => setFormData({ ...formData, telefone2: e.target.value })}
-                />
-
-                <Input
-                  label="Valor do Débito (R$)"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.valor_debito}
-                  onChange={(e) => setFormData({ ...formData, valor_debito: parseFloat(e.target.value) })}
-                  required
-                />
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Juros</label>
-                    <select
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                      value={formData.juros_tipo}
-                      onChange={(e) => setFormData({ ...formData, juros_tipo: e.target.value as any })}
-                    >
-                      <option value="NENHUM">Nenhum</option>
-                      <option value="PERCENTUAL">Percentual (%)</option>
-                      <option value="FIXO">Valor Fixo (R$)</option>
-                    </select>
+                  
+                  <div className="md:col-span-2">
+                    <Input
+                      label="Nome Completo"
+                      value={formData.nome}
+                      onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+                      required
+                    />
                   </div>
+
+                  <div className="md:col-span-2">
+                    <Input
+                      label="Endereço"
+                      value={formData.endereco}
+                      onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
+                      required
+                    />
+                  </div>
+
                   <Input
-                    label="Valor Juros"
+                    label="Telefone 1"
+                    value={formData.telefone1}
+                    onChange={(e) => setFormData({ ...formData, telefone1: e.target.value })}
+                    required
+                  />
+                  <Input
+                    label="Telefone 2 (Opcional)"
+                    value={formData.telefone2}
+                    onChange={(e) => setFormData({ ...formData, telefone2: e.target.value })}
+                  />
+
+                  <Input
+                    label="Valor do Débito (R$)"
                     type="number"
                     min="0"
                     step="0.01"
-                    value={formData.juros_valor}
-                    onChange={(e) => setFormData({ ...formData, juros_valor: parseFloat(e.target.value) })}
-                    disabled={formData.juros_tipo === 'NENHUM'}
+                    value={formData.valor_debito}
+                    onChange={(e) => setFormData({ ...formData, valor_debito: parseFloat(e.target.value) })}
+                    required
                   />
                 </div>
-              </div>
 
-              <div className="pt-4 flex justify-end space-x-3 border-t border-gray-200 mt-6">
-                <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button type="submit">
-                  Salvar
-                </Button>
-              </div>
-            </form>
+                <div className="pt-4 flex justify-end space-x-3 border-t border-gray-200 mt-6 shrink-0">
+                  <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit">
+                    Salvar
+                  </Button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}

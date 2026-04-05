@@ -78,7 +78,11 @@ export default function Parcelas() {
           if (vencimento < today) {
             // Update in DB asynchronously only if the user is the owner
             if (appUser?.role === 'COBRADOR' && p.uid === appUser?.uid) {
-              updateDoc(doc(db, 'parcelas', p.id), { status: 'ATRASADO' }).catch(console.error);
+              updateDoc(doc(db, 'parcelas', p.id), { 
+                status: 'ATRASADO',
+                uid: appUser.uid,
+                empresaId: selectedEmpresa?.id || p.empresaId
+              }).catch(console.error);
             }
             return { ...p, status: 'ATRASADO' as const };
           }
@@ -101,11 +105,23 @@ export default function Parcelas() {
       alert('Apenas cobradores podem marcar parcelas como pagas.');
       return;
     }
+    if (!selectedEmpresa?.id) {
+      alert('Empresa não selecionada.');
+      return;
+    }
+    if (!appUser?.uid) {
+      alert('Usuário não autenticado.');
+      return;
+    }
     if (!window.confirm('Tem certeza que deseja marcar esta parcela como PAGA? O pagamento deve ser registrado via Nova Negociação -> Pagamento de Parcela.')) {
       return;
     }
     try {
-      await updateDoc(doc(db, 'parcelas', parcela.id), { status: 'PAGO' });
+      await updateDoc(doc(db, 'parcelas', parcela.id), { 
+        status: 'PAGO',
+        uid: appUser.uid,
+        empresaId: selectedEmpresa.id
+      });
       alert('Status da parcela atualizado para PAGO.');
     } catch (error) {
       console.error("Error updating parcela:", error);
