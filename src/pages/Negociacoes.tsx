@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useEmpresa } from '../contexts/EmpresaContext';
-import { collection, onSnapshot, query, orderBy, runTransaction, doc, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, runTransaction, doc, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -12,25 +12,45 @@ import { logAction } from '../utils/auditLogger';
 interface Negociacao {
   id: string;
   cliente_id: string;
+  clienteNome?: string;
   empresaId: string;
   cobrador_id: string;
   uid?: string;
   tipo: 'QUITACAO' | 'PARCELAMENTO' | 'PARCELA' | 'RESGATE';
   valor: number;
+  valorTotal?: number;
+  valorDebito?: number;
   valor_entrada?: number;
   numero_parcelas?: number;
   tipoJuros?: string;
   valorJuros?: number;
   observacoes?: string;
+  parcela_id?: string;
   status: 'ATIVO' | 'ESTORNADO';
   createdAt: string;
 }
 
 interface Cliente {
   id: string;
+  codigo: string;
   nome: string;
   valor_debito: number;
   empresaId: string;
+}
+
+interface ParcelaGerada {
+  numero: number;
+  valor: number;
+  vencimento: string;
+}
+
+interface ParcelaAberta {
+  id: string;
+  numero_parcela: number;
+  valor: number;
+  data_vencimento: string;
+  negociacao_id: string;
+  status: string;
 }
 
 export default function Negociacoes() {
@@ -41,15 +61,22 @@ export default function Negociacoes() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   const [formData, setFormData] = useState({
+    codigoCliente: '',
     cliente_id: '',
+    clienteNome: '',
+    valorDebito: 0,
     tipo: 'QUITACAO' as 'QUITACAO' | 'PARCELAMENTO' | 'PARCELA' | 'RESGATE',
-    valor: 0,
+    valorTotal: 0,
     valor_entrada: 0,
     numero_parcelas: 1,
     tipoJuros: 'NENHUM',
     valorJuros: 0,
     observacoes: ''
   });
+
+  const [parcelasGeradas, setParcelasGeradas] = useState<ParcelaGerada[]>([]);
+  const [parcelasAbertas, setParcelasAbertas] = useState<ParcelaAberta[]>([]);
+  const [parcelaSelecionadaId, setParcelaSelecionadaId] = useState<string>('');
 
   useEffect(() => {
     let qClientes = query(collection(db, 'clientes'), orderBy('nome'));
@@ -82,6 +109,74 @@ export default function Negociacoes() {
     };
   }, [selectedEmpresa]);
 
+  const buscarClientePorCodigo = async () => {
+    if (!formData.codigoCliente) return;
+    const cliente = clientes.find(c => c.codigo === formData.codigoCliente);
+    if (cliente) {
+      setFormData(prev => ({
+        ...prev,
+        cliente_id: cliente.id,
+        clienteNome: cliente.nome,
+        valorDebito: cliente.valor_debito
+      }));
+      
+      try {
+        const q = query(collection(db, 'parcelas'), 
+          where('empresaId', '==', selectedEmpresa?.id), 
+          where('cliente_id', '==', cliente.id)
+        );
+        const snapshot = await getDocs(q);
+        const abertas = snapshot.docs
+          .map(d => ({ id: d.id, ...d.data() } as ParcelaAberta))
+          .filter(p => p.status === 'PENDENTE' || p.status === 'ATRASADO');
+        setParcelasAbertas(abertas);
+      } catch (err) {
+        console.error("Erro ao buscar parcelas:", err);
+      }
+    } else {
+      alert("Cliente não encontrado.");
+      setFormData(prev => ({ ...prev, cliente_id: '', clienteNome: '', valorDebito: 0 }));
+      setParcelasAbertas([]);
+    }
+  };
+
+  useEffect(() => {
+    let juros = 0;
+    if (formData.tipoJuros === 'FIXO') {
+      juros = formData.valorJuros;
+    } else if (formData.tipoJuros === 'PERCENTUAL') {
+      juros = formData.valorDebito * (formData.valorJuros / 100);
+    }
+    const total = formData.valorDebito + juros;
+    setFormData(prev => ({ ...prev, valorTotal: total }));
+  }, [formData.valorDebito, formData.tipoJuros, formData.valorJuros]);
+
+  useEffect(() => {
+    if (formData.tipo === 'PARCELAMENTO' && formData.numero_parcelas > 0) {
+      const restante = formData.valorTotal - formData.valor_entrada;
+      const valorParcela = restante / formData.numero_parcelas;
+      const novasParcelas: ParcelaGerada[] = [];
+      for (let i = 1; i <= formData.numero_parcelas; i++) {
+        const data = new Date();
+        data.setMonth(data.getMonth() + i);
+        novasParcelas.push({
+          numero: i,
+          valor: parseFloat(valorParcela.toFixed(2)),
+          vencimento: data.toISOString().split('T')[0]
+        });
+      }
+      setParcelasGeradas(novasParcelas);
+    } else {
+      setParcelasGeradas([]);
+    }
+  }, [formData.tipo, formData.valorTotal, formData.valor_entrada, formData.numero_parcelas]);
+
+  const handleParcelaChange = (index: number, field: keyof ParcelaGerada, value: any) => {
+    const updated = [...parcelasGeradas];
+    updated[index] = { ...updated[index], [field]: value };
+    setParcelasGeradas(updated);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -101,25 +196,48 @@ export default function Negociacoes() {
     }
 
     const cliente = clientes.find(c => c.id === formData.cliente_id);
-    if (!cliente) return;
+    if (!cliente) {
+      alert("Cliente inválido.");
+      return;
+    }
+
+    if (formData.tipo === 'PARCELA' && !parcelaSelecionadaId) {
+      alert("Selecione uma parcela para pagar.");
+      return;
+    }
+
+    if (formData.tipo === 'PARCELAMENTO') {
+      const somaParcelas = parcelasGeradas.reduce((acc, p) => acc + p.valor, 0);
+      const valorRestante = formData.valorTotal - formData.valor_entrada;
+      if (Math.abs(somaParcelas - valorRestante) > 0.01) {
+        alert("A soma das parcelas não confere com o valor restante.");
+        return;
+      }
+    }
 
     const payload = {
       cliente_id: cliente.id,
+      clienteNome: cliente.nome,
       empresaId: selectedEmpresa.id,
       uid: currentUser.uid,
       cobrador_id: appUser.id,
       tipo: formData.tipo,
-      valor: formData.valor,
+      valor: formData.valorTotal,
+      valorTotal: formData.valorTotal,
+      valorDebito: formData.valorDebito,
       valor_entrada: formData.valor_entrada,
       numero_parcelas: formData.numero_parcelas,
       tipoJuros: formData.tipoJuros,
       valorJuros: formData.valorJuros,
       observacoes: formData.observacoes,
       status: 'ATIVO',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      ...(formData.tipo === 'PARCELA' ? { parcela_id: parcelaSelecionadaId } : {})
     };
 
-    console.log("PAYLOAD NEGOCIACAO:", payload);
+    console.log("CLIENTE:", cliente);
+    console.log("NEGOCIACAO:", payload);
+    console.log("PARCELAS:", parcelasGeradas);
 
     try {
       const negociacaoId = await runTransaction(db, async (transaction) => {
@@ -132,25 +250,39 @@ export default function Negociacoes() {
 
         const debitoAtual = clienteDoc.data().valor_debito;
         let valorPago = 0;
-        let valorTotalNegociado = formData.valor;
 
         if (formData.tipo === 'QUITACAO') {
           valorPago = debitoAtual;
-          valorTotalNegociado = debitoAtual;
-          payload.valor = debitoAtual;
         } else if (formData.tipo === 'PARCELAMENTO') {
           valorPago = formData.valor_entrada;
-        } else if (formData.tipo === 'PARCELA' || formData.tipo === 'RESGATE') {
-          valorPago = formData.valor;
+        } else if (formData.tipo === 'PARCELA') {
+          const parcelaRef = doc(db, 'parcelas', parcelaSelecionadaId);
+          const parcelaDoc = await transaction.get(parcelaRef);
+          if (!parcelaDoc.exists()) throw new Error("Parcela não encontrada!");
+          
+          valorPago = parcelaDoc.data().valor;
+          transaction.update(parcelaRef, { status: 'PAGO' });
+          
+          const hoje = new Date().toISOString().split('T')[0];
+          const vencimento = new Date(parcelaDoc.data().data_vencimento).toISOString().split('T')[0];
+          if (vencimento === hoje) {
+            alert("Atenção: Esta parcela vence hoje!");
+          }
+        } else if (formData.tipo === 'RESGATE') {
+          valorPago = debitoAtual;
         }
 
         const novoDebito = debitoAtual - valorPago;
-        if (novoDebito < 0) {
+        if (novoDebito < -0.01) {
           throw new Error("O valor pago não pode ser maior que o débito atual.");
         }
 
+        console.log("SALDO ANTES:", debitoAtual);
+        console.log("VALOR PAGO:", valorPago);
+        console.log("SALDO FINAL:", novoDebito);
+
         // Update client debt
-        transaction.update(clienteRef, { valor_debito: novoDebito });
+        transaction.update(clienteRef, { valor_debito: Math.max(0, novoDebito) });
 
         // Create negotiation
         const newNegociacaoRef = doc(collection(db, 'negociacoes'));
@@ -167,30 +299,29 @@ export default function Negociacoes() {
             tipo: 'PAGAMENTO',
             valor: valorPago,
             saldo_anterior: debitoAtual,
-            saldo_atual: novoDebito,
+            saldo_atual: Math.max(0, novoDebito),
             data: new Date().toISOString(),
             cobrador_id: appUser.id
           });
         }
 
-        // If it's a parcelamento, we should also create the parcelas
-        if (formData.tipo === 'PARCELAMENTO' && formData.numero_parcelas > 0) {
-          const valorRestante = valorTotalNegociado - formData.valor_entrada;
-          const valorParcela = valorRestante / formData.numero_parcelas;
-          
-          for (let i = 1; i <= formData.numero_parcelas; i++) {
+        // Create Parcelas
+        if (formData.tipo === 'PARCELAMENTO' && parcelasGeradas.length > 0) {
+          for (const p of parcelasGeradas) {
             const parcelaRef = doc(collection(db, 'parcelas'));
-            const dataVencimento = new Date();
-            dataVencimento.setMonth(dataVencimento.getMonth() + i);
-            
+            const [year, month, day] = p.vencimento.split('-');
+            const dataVencimento = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0);
+
             transaction.set(parcelaRef, {
               negociacao_id: newNegociacaoRef.id,
+              cliente_id: cliente.id,
               empresaId: selectedEmpresa.id,
               uid: currentUser.uid,
-              numero_parcela: i,
-              valor: valorParcela,
+              numero_parcela: p.numero,
+              valor: p.valor,
               status: 'PENDENTE',
-              data_vencimento: dataVencimento.toISOString()
+              data_vencimento: dataVencimento.toISOString(),
+              createdAt: new Date().toISOString()
             });
           }
         }
@@ -200,7 +331,7 @@ export default function Negociacoes() {
 
       logAction(appUser, 'CRIAR_NEGOCIACAO', 'negociacao', negociacaoId, {
         tipo: formData.tipo,
-        valor: formData.valor,
+        valor: formData.valorTotal,
         cliente_id: cliente.id
       });
 
@@ -222,6 +353,10 @@ export default function Negociacoes() {
     }
 
     try {
+      const qParcelas = query(collection(db, 'parcelas'), where('negociacao_id', '==', negociacao.id));
+      const parcelasSnapshot = await getDocs(qParcelas);
+      const parcelasIds = parcelasSnapshot.docs.map(d => d.id);
+
       await runTransaction(db, async (transaction) => {
         const clienteRef = doc(db, 'clientes', negociacao.cliente_id);
         const clienteDoc = await transaction.get(clienteRef);
@@ -232,21 +367,34 @@ export default function Negociacoes() {
         let valorRevertido = 0;
 
         if (negociacao.tipo === 'QUITACAO') {
-          valorRevertido = negociacao.valor;
+          valorRevertido = negociacao.valorDebito || negociacao.valor;
         } else if (negociacao.tipo === 'PARCELAMENTO') {
           valorRevertido = negociacao.valor_entrada || 0;
-        } else if (negociacao.tipo === 'PARCELA' || negociacao.tipo === 'RESGATE') {
+        } else if (negociacao.tipo === 'PARCELA') {
           valorRevertido = negociacao.valor;
+        } else if (negociacao.tipo === 'RESGATE') {
+          valorRevertido = negociacao.valorDebito || negociacao.valor;
         }
 
-        const novoDebito = debitoAtual + valorRevertido;
+        let novoDebito = debitoAtual + valorRevertido;
 
         // Update client debt
-        transaction.update(clienteRef, { valor_debito: novoDebito });
+        transaction.update(clienteRef, { valor_debito: Math.max(0, novoDebito) });
 
         // Update negotiation status
         const negRef = doc(db, 'negociacoes', negociacao.id);
         transaction.update(negRef, { status: 'ESTORNADO' });
+
+        // Update parcelas status
+        for (const pid of parcelasIds) {
+          const pRef = doc(db, 'parcelas', pid);
+          transaction.update(pRef, { status: 'ESTORNADO' });
+        }
+
+        if (negociacao.tipo === 'PARCELA' && negociacao.parcela_id) {
+          const pRef = doc(db, 'parcelas', negociacao.parcela_id);
+          transaction.update(pRef, { status: 'PENDENTE' });
+        }
 
         // Create Movimentacao (Estorno)
         if (valorRevertido > 0) {
@@ -255,11 +403,11 @@ export default function Negociacoes() {
             cliente_id: negociacao.cliente_id,
             negociacao_id: negociacao.id,
             empresaId: selectedEmpresa?.id || negociacao.empresaId,
-            uid: appUser.uid,
+            uid: currentUser?.uid,
             tipo: 'ESTORNO',
             valor: valorRevertido,
             saldo_anterior: debitoAtual,
-            saldo_atual: novoDebito,
+            saldo_atual: Math.max(0, novoDebito),
             data: new Date().toISOString(),
             cobrador_id: appUser.id
           });
@@ -280,15 +428,21 @@ export default function Negociacoes() {
 
   const resetForm = () => {
     setFormData({
+      codigoCliente: '',
       cliente_id: '',
+      clienteNome: '',
+      valorDebito: 0,
       tipo: 'QUITACAO',
-      valor: 0,
+      valorTotal: 0,
       valor_entrada: 0,
       numero_parcelas: 1,
       tipoJuros: 'NENHUM',
       valorJuros: 0,
       observacoes: ''
     });
+    setParcelasGeradas([]);
+    setParcelasAbertas([]);
+    setParcelaSelecionadaId('');
   };
 
   const getClienteNome = (id: string) => clientes.find(c => c.id === id)?.nome || 'Desconhecido';
@@ -381,7 +535,7 @@ export default function Negociacoes() {
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden my-8">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden my-8">
             <div className="flex justify-between items-center p-6 border-b border-gray-200">
               <h3 className="text-lg font-medium text-gray-900">Nova Negociação</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-500">
@@ -389,72 +543,28 @@ export default function Negociacoes() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
-                <select
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                  value={formData.cliente_id}
-                  onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value })}
-                  required
-                >
-                  <option value="">Selecione um cliente</option>
-                  {clientes.map(c => (
-                    <option key={c.id} value={c.id}>{c.nome} (Débito: R$ {c.valor_debito.toFixed(2)})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Negociação</label>
-                <select
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                  value={formData.tipo}
-                  onChange={(e) => setFormData({ ...formData, tipo: e.target.value as any })}
-                  required
-                >
-                  <option value="QUITACAO">Quitação</option>
-                  <option value="PARCELAMENTO">Entrada + Parcelamento</option>
-                  <option value="PARCELA">Pagamento de Parcela</option>
-                  <option value="RESGATE">Resgate de Objeto</option>
-                </select>
-              </div>
-
-              {formData.tipo !== 'QUITACAO' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
-                  label="Valor Total Negociado (R$)"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.valor}
-                  onChange={(e) => setFormData({ ...formData, valor: parseFloat(e.target.value) })}
+                  label="Código do Cliente"
+                  value={formData.codigoCliente}
+                  onChange={(e) => setFormData({ ...formData, codigoCliente: e.target.value })}
+                  onBlur={buscarClientePorCodigo}
                   required
                 />
-              )}
-
-              {formData.tipo === 'PARCELAMENTO' && (
-                <>
-                  <Input
-                    label="Valor da Entrada (R$)"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.valor_entrada}
-                    onChange={(e) => setFormData({ ...formData, valor_entrada: parseFloat(e.target.value) })}
-                    required
-                  />
-                  <Input
-                    label="Número de Parcelas"
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={formData.numero_parcelas}
-                    onChange={(e) => setFormData({ ...formData, numero_parcelas: parseInt(e.target.value) })}
-                    required
-                  />
-                </>
-              )}
-
-              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  label="Nome do Cliente"
+                  value={formData.clienteNome}
+                  readOnly
+                  className="bg-gray-50"
+                />
+                <Input
+                  label="Valor do Débito (R$)"
+                  type="number"
+                  value={formData.valorDebito}
+                  readOnly
+                  className="bg-gray-50"
+                />
+                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Juros</label>
                   <select
@@ -467,16 +577,113 @@ export default function Negociacoes() {
                     <option value="FIXO">Valor Fixo (R$)</option>
                   </select>
                 </div>
+                
                 <Input
                   label="Valor Juros"
                   type="number"
                   min="0"
                   step="0.01"
                   value={formData.valorJuros}
-                  onChange={(e) => setFormData({ ...formData, valorJuros: parseFloat(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, valorJuros: parseFloat(e.target.value) || 0 })}
                   disabled={formData.tipoJuros === 'NENHUM'}
                 />
+
+                <Input
+                  label="Valor Total Negociado (R$)"
+                  type="number"
+                  value={formData.valorTotal}
+                  readOnly
+                  className="bg-gray-50 font-bold text-lg"
+                />
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Negociação</label>
+                  <select
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                    value={formData.tipo}
+                    onChange={(e) => {
+                      setFormData({ ...formData, tipo: e.target.value as any });
+                      setParcelaSelecionadaId('');
+                    }}
+                    required
+                  >
+                    <option value="QUITACAO">Quitação</option>
+                    <option value="PARCELAMENTO">Entrada + Parcelamento</option>
+                    {parcelasAbertas.length > 0 && <option value="PARCELA">Pagamento de Parcela</option>}
+                    <option value="RESGATE">Resgate de Objeto</option>
+                  </select>
+                </div>
               </div>
+
+              {formData.tipo === 'PARCELA' && parcelasAbertas.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Selecione a Parcela</label>
+                  <select
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                    value={parcelaSelecionadaId}
+                    onChange={(e) => setParcelaSelecionadaId(e.target.value)}
+                    required
+                  >
+                    <option value="">Selecione...</option>
+                    {parcelasAbertas.map(p => (
+                      <option key={p.id} value={p.id}>
+                        Parcela {p.numero_parcela} - R$ {p.valor.toFixed(2)} - Venc: {new Date(p.data_vencimento).toLocaleDateString('pt-BR')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {formData.tipo === 'PARCELAMENTO' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4 mt-4">
+                  <Input
+                    label="Valor da Entrada (R$)"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.valor_entrada}
+                    onChange={(e) => setFormData({ ...formData, valor_entrada: parseFloat(e.target.value) || 0 })}
+                    required
+                  />
+                  <Input
+                    label="Número de Parcelas"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={formData.numero_parcelas}
+                    onChange={(e) => setFormData({ ...formData, numero_parcelas: parseInt(e.target.value) || 1 })}
+                    required
+                  />
+                  
+                  {parcelasGeradas.length > 0 && (
+                    <div className="md:col-span-2 mt-4">
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">Parcelas Geradas</h4>
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {parcelasGeradas.map((p, index) => (
+                          <div key={index} className="flex items-center space-x-2 bg-gray-50 p-2 rounded">
+                            <span className="text-sm font-medium w-8">{p.numero}º</span>
+                            <Input
+                              label=""
+                              type="number"
+                              step="0.01"
+                              value={p.valor}
+                              onChange={(e) => handleParcelaChange(index, 'valor', parseFloat(e.target.value) || 0)}
+                              className="w-32"
+                            />
+                            <Input
+                              label=""
+                              type="date"
+                              value={p.vencimento}
+                              onChange={(e) => handleParcelaChange(index, 'vencimento', e.target.value)}
+                              className="w-40"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
