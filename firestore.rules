@@ -55,42 +55,46 @@ service cloud.firestore {
     
     match /clientes/{docId} {
       allow read: if isAuthenticated();
-      allow create: if request.auth != null
+      allow create: if isAuthenticated()
         && request.auth.uid == request.resource.data.uid
         && request.resource.data.empresaId != null;
-      allow update, delete: if request.auth != null
+      allow update: if isMaster() || (isAuthenticated()
         && request.auth.uid == resource.data.uid
-        && resource.data.empresaId != null;
+        && resource.data.empresaId != null);
+      allow delete: if isMaster();
     }
     
     match /negociacoes/{negociacaoId} {
       allow read: if isAuthenticated();
-      allow create: if request.auth != null
+      allow create: if isAuthenticated()
         && request.auth.uid == request.resource.data.uid
         && request.resource.data.empresaId != null;
-      allow update, delete: if request.auth != null
+      allow update: if isMaster() || (isAuthenticated()
         && request.auth.uid == resource.data.uid
-        && resource.data.empresaId != null;
+        && resource.data.empresaId != null);
+      allow delete: if isMaster();
     }
     
     match /parcelas/{parcelaId} {
       allow read: if isAuthenticated();
-      allow create: if request.auth != null
+      allow create: if isAuthenticated()
         && request.auth.uid == request.resource.data.uid
         && request.resource.data.empresaId != null;
-      allow update, delete: if request.auth != null
+      allow update: if isMaster() || (isAuthenticated()
         && request.auth.uid == resource.data.uid
-        && resource.data.empresaId != null;
+        && resource.data.empresaId != null);
+      allow delete: if isMaster();
     }
     
     match /agendamentos/{agendamentoId} {
       allow read: if isAuthenticated();
-      allow create: if request.auth != null
+      allow create: if isAuthenticated()
         && request.auth.uid == request.resource.data.uid
         && request.resource.data.empresaId != null;
-      allow update, delete: if request.auth != null
+      allow update: if isMaster() || (isAuthenticated()
         && request.auth.uid == resource.data.uid
-        && resource.data.empresaId != null;
+        && resource.data.empresaId != null);
+      allow delete: if isMaster();
     }
 
     match /movimentacoes/{movimentacaoId} {
