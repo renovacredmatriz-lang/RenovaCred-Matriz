@@ -241,17 +241,22 @@ export default function Negociacoes() {
 
         const debitoAtual = clienteDoc.data().valor_debito;
         let valorPago = 0;
+        let valorAbatido = 0;
 
         if (formData.tipo === 'QUITACAO') {
-          valorPago = debitoAtual;
+          valorPago = formData.valorTotal;
+          valorAbatido = debitoAtual;
         } else if (formData.tipo === 'PARCELAMENTO') {
           valorPago = formData.valor_entrada;
+          valorAbatido = valorPago;
         } else if (formData.tipo === 'PARCELA') {
           const parcelaRef = doc(db, 'parcelas', parcelaSelecionadaId);
           const parcelaDoc = await transaction.get(parcelaRef);
           if (!parcelaDoc.exists()) throw new Error("Parcela não encontrada!");
           
           valorPago = parcelaDoc.data().valor;
+          valorAbatido = valorPago;
+          
           transaction.update(parcelaRef, { 
             status: 'PAGO',
             uid: currentUser.uid,
@@ -264,21 +269,25 @@ export default function Negociacoes() {
             alert("Atenção: Esta parcela vence hoje!");
           }
         } else if (formData.tipo === 'RESGATE') {
-          valorPago = debitoAtual;
+          valorPago = formData.valorTotal;
+          valorAbatido = debitoAtual;
         }
 
-        const novoDebito = debitoAtual - valorPago;
-        if (novoDebito < -0.01) {
+        const novoDebito = Math.max(0, debitoAtual - valorAbatido);
+        
+        // Validação de segurança: o valor abatido do principal não pode ser maior que a dívida
+        if (debitoAtual - valorAbatido < -0.01 && formData.tipo !== 'QUITACAO' && formData.tipo !== 'RESGATE') {
           throw new Error("O valor pago não pode ser maior que o débito atual.");
         }
 
         console.log("SALDO ANTES:", debitoAtual);
-        console.log("VALOR PAGO:", valorPago);
+        console.log("VALOR PAGO (TOTAL):", valorPago);
+        console.log("VALOR ABATIDO (PRINCIPAL):", valorAbatido);
         console.log("SALDO FINAL:", novoDebito);
 
         // Update client debt
         transaction.update(clienteRef, { 
-          valor_debito: Math.max(0, novoDebito),
+          valor_debito: novoDebito,
           uid: currentUser.uid,
           empresaId: selectedEmpresa.id
         });

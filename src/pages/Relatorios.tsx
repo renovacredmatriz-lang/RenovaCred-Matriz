@@ -5,7 +5,7 @@ import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestor
 import { db } from '../firebase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Printer } from 'lucide-react';
+import { Printer, RotateCcw } from 'lucide-react';
 
 interface Movimentacao {
   id: string;
@@ -44,12 +44,13 @@ export default function Relatorios() {
 
   useEffect(() => {
     const unsubClientes = onSnapshot(collection(db, 'clientes'), (snapshot) => {
-      setClientes(snapshot.docs.map(doc => ({ 
+      const docs = snapshot.docs.map(doc => ({ 
         id: doc.id, 
         nome: doc.data().nome, 
         empresaId: doc.data().empresaId,
         codigo: doc.data().codigo
-      })));
+      }));
+      setClientes(docs.sort((a, b) => a.nome.localeCompare(b.nome)));
     });
     const unsubEmpresas = onSnapshot(collection(db, 'empresas'), (snapshot) => {
       setEmpresas(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome })));
@@ -89,6 +90,18 @@ export default function Relatorios() {
     window.print();
   };
 
+  const handleClearFilters = () => {
+    setFiltros({
+      dataInicio: '',
+      dataFim: '',
+      cliente_id: '',
+      cliente_search: '',
+      cobrador_id: '',
+      empresa_id: '',
+      status: ''
+    });
+  };
+
   const filteredMovimentacoes = movimentacoes.filter(mov => {
     const cliente = clientes.find(c => c.id === mov.cliente_id);
     
@@ -110,12 +123,12 @@ export default function Relatorios() {
     if (filtros.status && mov.tipo !== filtros.status) return false;
     
     if (filtros.dataInicio) {
-      if (new Date(mov.data) < new Date(filtros.dataInicio)) return false;
+      const dInicio = new Date(filtros.dataInicio + 'T00:00:00Z');
+      if (new Date(mov.data) < dInicio) return false;
     }
     if (filtros.dataFim) {
-      const dataFim = new Date(filtros.dataFim);
-      dataFim.setHours(23, 59, 59, 999);
-      if (new Date(mov.data) > dataFim) return false;
+      const dFim = new Date(filtros.dataFim + 'T23:59:59.999Z');
+      if (new Date(mov.data) > dFim) return false;
     }
     
     // Se for cobrador, só vê as próprias
@@ -130,8 +143,7 @@ export default function Relatorios() {
   const getClienteNome = (id: string) => clientes.find(c => c.id === id)?.nome || 'Desconhecido';
   const getEmpresaNome = (cliente_id: string) => {
     const cliente = clientes.find(c => c.id === cliente_id);
-    if (!cliente) return 'Desconhecida';
-    return empresas.find(e => e.id === cliente.empresaId)?.nome || 'Desconhecida';
+    return empresas.find(e => e.id === (cliente?.empresaId || ''))?.nome || 'Desconhecida';
   };
   const getCobradorNome = (id: string) => cobradores.find(c => c.id === id)?.nome || 'Desconhecido';
   
@@ -157,10 +169,16 @@ export default function Relatorios() {
           <h1 className="text-2xl font-semibold text-gray-900">Relatórios Financeiros</h1>
           <p className="mt-1 text-sm text-gray-500">Relatório de recebimentos e comissões.</p>
         </div>
-        <Button variant="secondary" onClick={handlePrint}>
-          <Printer className="w-4 h-4 mr-2" />
-          Imprimir
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={handleClearFilters}>
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Limpar Filtros
+          </Button>
+          <Button variant="secondary" onClick={handlePrint}>
+            <Printer className="w-4 h-4 mr-2" />
+            Imprimir
+          </Button>
+        </div>
       </div>
 
       <Card className="print:hidden">
@@ -202,8 +220,18 @@ export default function Relatorios() {
             >
               <option value="">Todos</option>
               {clientes
-                .filter(c => appUser?.role === 'MASTER' || c.empresaId === selectedEmpresa?.id)
-                .map(c => <option key={c.id} value={c.id}>{c.nome}</option>)
+                .filter(c => {
+                  if (appUser?.role === 'MASTER') {
+                    if (filtros.empresa_id) return c.empresaId === filtros.empresa_id;
+                    return true;
+                  }
+                  return c.empresaId === selectedEmpresa?.id;
+                })
+                .map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.codigo ? `${c.codigo} - ` : ''}{c.nome}
+                  </option>
+                ))
               }
             </select>
           </div>

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useEmpresa } from '../contexts/EmpresaContext';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, getDocs, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
-import { CheckCircle } from 'lucide-react';
+import { Input } from '../components/ui/Input';
+import { Search } from 'lucide-react';
 
 interface Parcela {
   id: string;
@@ -29,6 +29,7 @@ interface Cliente {
   id: string;
   nome: string;
   empresaId: string;
+  codigo?: string;
 }
 
 export default function Parcelas() {
@@ -37,6 +38,7 @@ export default function Parcelas() {
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   const [negociacoes, setNegociacoes] = useState<Negociacao[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [busca, setBusca] = useState('');
 
   useEffect(() => {
     let qClientes = query(collection(db, 'clientes'));
@@ -44,7 +46,12 @@ export default function Parcelas() {
       qClientes = query(collection(db, 'clientes'), where('empresaId', '==', selectedEmpresa.id));
     }
     const unsubClientes = onSnapshot(qClientes, (snapshot) => {
-      setClientes(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome, empresaId: doc.data().empresaId } as Cliente)));
+      setClientes(snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        nome: doc.data().nome, 
+        empresaId: doc.data().empresaId,
+        codigo: doc.data().codigo
+      } as Cliente)));
     });
 
     let qNegociacoes = query(collection(db, 'negociacoes'));
@@ -129,26 +136,47 @@ export default function Parcelas() {
     }
   };
 
-  const getClienteNome = (negociacao_id: string) => {
+  const getClienteInfo = (negociacao_id: string) => {
     const neg = negociacoes.find(n => n.id === negociacao_id);
-    if (!neg) return 'Desconhecido';
+    if (!neg) return { nome: 'Desconhecido', codigo: '' };
     const cliente = clientes.find(c => c.id === neg.cliente_id);
-    return cliente ? cliente.nome : 'Desconhecido';
+    return cliente ? { nome: cliente.nome, codigo: cliente.codigo } : { nome: 'Desconhecido', codigo: '' };
   };
 
   const filteredParcelas = parcelas.filter(p => {
+    // Filtro por cobrador
     if (appUser?.role === 'COBRADOR') {
       const neg = negociacoes.find(n => n.id === p.negociacao_id);
-      return neg?.cobrador_id === appUser.id;
+      if (neg?.cobrador_id !== appUser.id) return false;
     }
+
+    // Filtro por busca (nome ou código)
+    if (busca) {
+      const info = getClienteInfo(p.negociacao_id);
+      const search = busca.toLowerCase();
+      const matchNome = info.nome.toLowerCase().includes(search);
+      const matchCodigo = info.codigo?.toLowerCase().includes(search);
+      if (!matchNome && !matchCodigo) return false;
+    }
+
     return true;
   });
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Parcelas</h1>
-        <p className="mt-1 text-sm text-gray-500">Controle de parcelas de negociações.</p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">Parcelas</h1>
+          <p className="mt-1 text-sm text-gray-500">Controle de parcelas de negociações.</p>
+        </div>
+
+        <div className="w-full sm:w-64">
+          <Input
+            placeholder="Buscar por nome ou código..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        </div>
       </div>
 
       <Card>
@@ -161,44 +189,39 @@ export default function Parcelas() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parcela</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredParcelas.map((parcela) => (
-                <tr key={parcela.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(parcela.data_vencimento).toLocaleDateString('pt-BR')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {getClienteNome(parcela.negociacao_id)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {parcela.numero_parcela}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parcela.valor)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                      ${parcela.status === 'PAGO' ? 'bg-green-100 text-green-800' : 
-                        parcela.status === 'ATRASADO' ? 'bg-red-100 text-red-800' : 
-                        'bg-yellow-100 text-yellow-800'}`}>
-                      {parcela.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    {parcela.status !== 'PAGO' && (
-                      <Button variant="secondary" size="sm" onClick={() => handleMarcarPago(parcela)} title="Marcar como Pago">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {filteredParcelas.map((parcela) => {
+                const clienteInfo = getClienteInfo(parcela.negociacao_id);
+                return (
+                  <tr key={parcela.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {new Date(parcela.data_vencimento).toLocaleDateString('pt-BR')}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {clienteInfo.codigo ? `${clienteInfo.codigo} - ` : ''}{clienteInfo.nome}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {parcela.numero_parcela}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parcela.valor)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                        ${parcela.status === 'PAGO' ? 'bg-green-100 text-green-800' : 
+                          parcela.status === 'ATRASADO' ? 'bg-red-100 text-red-800' : 
+                          'bg-yellow-100 text-yellow-800'}`}>
+                        {parcela.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
               {filteredParcelas.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">
+                  <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
                     Nenhuma parcela encontrada.
                   </td>
                 </tr>

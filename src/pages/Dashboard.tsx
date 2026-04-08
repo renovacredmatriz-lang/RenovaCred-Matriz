@@ -14,11 +14,14 @@ export default function Dashboard() {
     totalRecebido: 0,
     totalAReceber: 0,
     agendamentosHoje: 0,
-    performancePorCobrador: [] as { id: string; nome: string; total: number }[],
+    totalComissaoCobradores: 0,
+    comissaoMaster: 0,
+    comissaoSocio: 0,
+    performancePorCobrador: [] as { id: string; nome: string; total: number; comissao: number }[],
     performancePorEmpresa: [] as { id: string; nome: string; total: number }[],
   });
   
-  const [cobradores, setCobradores] = useState<{ id: string; nome: string }[]>([]);
+  const [cobradores, setCobradores] = useState<{ id: string; nome: string; comissao_percentual: number }[]>([]);
   const [empresas, setEmpresas] = useState<{ id: string; nome: string }[]>([]);
   
   const [filtros, setFiltros] = useState({
@@ -29,7 +32,11 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchAuxData = async () => {
       const cobSnapshot = await getDocs(query(collection(db, 'users'), where('role', '==', 'COBRADOR')));
-      setCobradores(cobSnapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome })));
+      setCobradores(cobSnapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        nome: doc.data().nome,
+        comissao_percentual: doc.data().comissao_percentual || 0
+      })));
       
       const empSnapshot = await getDocs(collection(db, 'empresas'));
       setEmpresas(empSnapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome })));
@@ -69,12 +76,12 @@ export default function Dashboard() {
           
           // Apply date filters
           if (filtros.dataInicio) {
-            if (new Date(data.createdAt) < new Date(filtros.dataInicio)) return;
+            const dInicio = new Date(filtros.dataInicio + 'T00:00:00Z');
+            if (new Date(data.createdAt) < dInicio) return;
           }
           if (filtros.dataFim) {
-            const dataFim = new Date(filtros.dataFim);
-            dataFim.setHours(23, 59, 59, 999);
-            if (new Date(data.createdAt) > dataFim) return;
+            const dFim = new Date(filtros.dataFim + 'T23:59:59.999Z');
+            if (new Date(data.createdAt) > dFim) return;
           }
 
           if (data.status === 'ESTORNO') return;
@@ -100,8 +107,21 @@ export default function Dashboard() {
         });
 
         const performancePorCobrador = Object.entries(cobradorMap)
-          .map(([id, total]) => ({ id, nome: cobradores.find(c => c.id === id)?.nome || 'Desconhecido', total }))
+          .map(([id, total]) => {
+            const cobrador = cobradores.find(c => c.id === id);
+            const comissao = total * ((cobrador?.comissao_percentual || 0) / 100);
+            return { 
+              id, 
+              nome: cobrador?.nome || 'Desconhecido', 
+              total,
+              comissao
+            };
+          })
           .sort((a, b) => b.total - a.total);
+
+        const totalComissaoCobradores = performancePorCobrador.reduce((acc, curr) => acc + curr.comissao, 0);
+        const comissaoMaster = totalRecebido * 0.10; // 10% padrão
+        const comissaoSocio = totalRecebido * 0.05;  // 5% padrão
 
         const performancePorEmpresa = Object.entries(empresaMap)
           .map(([id, total]) => ({ id, nome: empresas.find(e => e.id === id)?.nome || 'Desconhecida', total }))
@@ -145,6 +165,9 @@ export default function Dashboard() {
           totalRecebido,
           totalAReceber,
           agendamentosHoje,
+          totalComissaoCobradores,
+          comissaoMaster,
+          comissaoSocio,
           performancePorCobrador,
           performancePorEmpresa
         });
@@ -268,6 +291,64 @@ export default function Dashboard() {
       </div>
 
       {appUser?.role === 'MASTER' && (
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <Card className="bg-blue-50 border-blue-200">
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-blue-200 rounded-md p-3">
+                  <DollarSign className="h-6 w-6 text-blue-700" />
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-blue-700 truncate">Comissão Master (10%)</dt>
+                    <dd className="text-2xl font-bold text-blue-900">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.comissaoMaster)}
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-indigo-50 border-indigo-200">
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-indigo-200 rounded-md p-3">
+                  <DollarSign className="h-6 w-6 text-indigo-700" />
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-indigo-700 truncate">Comissão Sócio (5%)</dt>
+                    <dd className="text-2xl font-bold text-indigo-900">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.comissaoSocio)}
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-teal-50 border-teal-200">
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-teal-200 rounded-md p-3">
+                  <DollarSign className="h-6 w-6 text-teal-700" />
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-teal-700 truncate">Total Comissões Cobradores</dt>
+                    <dd className="text-2xl font-bold text-teal-900">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.totalComissaoCobradores)}
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {appUser?.role === 'MASTER' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
             <CardContent className="p-6">
@@ -277,11 +358,19 @@ export default function Dashboard() {
                   <div key={item.id} className="flex items-center justify-between">
                     <div className="flex items-center">
                       <span className="w-6 text-sm font-bold text-gray-400">{index + 1}º</span>
-                      <span className="ml-2 text-sm font-medium text-gray-900">{item.nome}</span>
+                      <div className="ml-2">
+                        <div className="text-sm font-medium text-gray-900">{item.nome}</div>
+                        <div className="text-xs text-blue-500 font-semibold">
+                          Comissão: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.comissao)}
+                        </div>
+                      </div>
                     </div>
-                    <span className="text-sm font-bold text-blue-600">
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.total)}
-                    </span>
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-gray-900">
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.total)}
+                      </div>
+                      <div className="text-xs text-gray-400">Total Recebido</div>
+                    </div>
                   </div>
                 ))}
                 {stats.performancePorCobrador.length === 0 && (
