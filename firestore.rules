@@ -10,12 +10,15 @@ service cloud.firestore {
     }
     
     function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : null;
     }
     
     function isMaster() {
+      let userData = getUserData();
       return isAuthenticated() && (
-        getUserData().role == 'MASTER' || 
+        (userData != null && userData.role == 'MASTER') || 
         (request.auth.token.email == "renovacredmatriz@gmail.com" && request.auth.token.email_verified == true)
       );
     }

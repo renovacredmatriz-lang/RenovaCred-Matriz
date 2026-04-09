@@ -110,7 +110,7 @@ export default function Agendamentos() {
     try {
       await updateDoc(doc(db, 'agendamentos', agendamento.id), { 
         status: 'CONCLUIDO',
-        uid: currentUser.uid,
+        uid: currentUser?.uid || appUser.id,
         empresaId: selectedEmpresa.id
       });
       logAction(appUser, 'CONCLUIR_AGENDAMENTO', 'agendamento', agendamento.id, {});

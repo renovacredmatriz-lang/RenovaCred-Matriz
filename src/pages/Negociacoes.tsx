@@ -239,23 +239,29 @@ export default function Negociacoes() {
           throw new Error("Cliente não encontrado!");
         }
 
-        const debitoAtual = clienteDoc.data().valor_debito;
+        const debitoAnterior = clienteDoc.data().valor_debito;
         let valorPago = 0;
-        let valorAbatido = 0;
+        let novoDebito = 0;
+        let saldoAnteriorParaLedger = debitoAnterior;
 
         if (formData.tipo === 'QUITACAO') {
           valorPago = formData.valorTotal;
-          valorAbatido = debitoAtual;
+          novoDebito = 0;
+          saldoAnteriorParaLedger = formData.valorTotal; // Reflete o total com juros
         } else if (formData.tipo === 'PARCELAMENTO') {
           valorPago = formData.valor_entrada;
-          valorAbatido = valorPago;
+          // O novo débito é exatamente o que foi parcelado (Total - Entrada)
+          novoDebito = formData.valorTotal - formData.valor_entrada;
+          saldoAnteriorParaLedger = formData.valorTotal; // Inicia com o total negociado (principal + juros)
         } else if (formData.tipo === 'PARCELA') {
           const parcelaRef = doc(db, 'parcelas', parcelaSelecionadaId);
           const parcelaDoc = await transaction.get(parcelaRef);
           if (!parcelaDoc.exists()) throw new Error("Parcela não encontrada!");
           
           valorPago = parcelaDoc.data().valor;
-          valorAbatido = valorPago;
+          // Reduz o débito atual pelo valor da parcela
+          novoDebito = Math.max(0, debitoAnterior - valorPago);
+          saldoAnteriorParaLedger = debitoAnterior;
           
           transaction.update(parcelaRef, { 
             status: 'PAGO',
@@ -266,24 +272,18 @@ export default function Negociacoes() {
           const hoje = new Date().toISOString().split('T')[0];
           const vencimento = new Date(parcelaDoc.data().data_vencimento).toISOString().split('T')[0];
           if (vencimento === hoje) {
-            alert("Atenção: Esta parcela vence hoje!");
+            console.log("Parcela vencendo hoje paga.");
           }
         } else if (formData.tipo === 'RESGATE') {
           valorPago = formData.valorTotal;
-          valorAbatido = debitoAtual;
+          novoDebito = 0;
+          saldoAnteriorParaLedger = formData.valorTotal;
         }
 
-        const novoDebito = Math.max(0, debitoAtual - valorAbatido);
-        
-        // Validação de segurança: o valor abatido do principal não pode ser maior que a dívida
-        if (debitoAtual - valorAbatido < -0.01 && formData.tipo !== 'QUITACAO' && formData.tipo !== 'RESGATE') {
-          throw new Error("O valor pago não pode ser maior que o débito atual.");
-        }
-
-        console.log("SALDO ANTES:", debitoAtual);
-        console.log("VALOR PAGO (TOTAL):", valorPago);
-        console.log("VALOR ABATIDO (PRINCIPAL):", valorAbatido);
-        console.log("SALDO FINAL:", novoDebito);
+        console.log("DÉBITO ANTERIOR (DB):", debitoAnterior);
+        console.log("VALOR TOTAL NEGOCIADO:", formData.valorTotal);
+        console.log("VALOR PAGO AGORA:", valorPago);
+        console.log("NOVO DÉBITO CALCULADO:", novoDebito);
 
         // Update client debt
         transaction.update(clienteRef, { 
@@ -294,7 +294,11 @@ export default function Negociacoes() {
 
         // Create negotiation
         const newNegociacaoRef = doc(collection(db, 'negociacoes'));
-        transaction.set(newNegociacaoRef, payload);
+        transaction.set(newNegociacaoRef, {
+          ...payload,
+          uid: currentUser.uid,
+          empresaId: selectedEmpresa.id
+        });
 
         // Create Movimentacao (Ledger)
         if (valorPago > 0) {
@@ -306,8 +310,8 @@ export default function Negociacoes() {
             uid: currentUser.uid,
             tipo: 'PAGAMENTO',
             valor: valorPago,
-            saldo_anterior: debitoAtual,
-            saldo_atual: Math.max(0, novoDebito),
+            saldo_anterior: saldoAnteriorParaLedger,
+            saldo_atual: novoDebito,
             data: new Date().toISOString(),
             cobrador_id: appUser.id
           };

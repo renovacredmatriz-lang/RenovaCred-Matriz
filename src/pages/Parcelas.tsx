@@ -33,7 +33,7 @@ interface Cliente {
 }
 
 export default function Parcelas() {
-  const { appUser } = useAuth();
+  const { appUser, currentUser } = useAuth();
   const { selectedEmpresa } = useEmpresa();
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   const [negociacoes, setNegociacoes] = useState<Negociacao[]>([]);
@@ -87,7 +87,7 @@ export default function Parcelas() {
             if (appUser?.role === 'COBRADOR' && p.uid === appUser?.uid) {
               updateDoc(doc(db, 'parcelas', p.id), { 
                 status: 'ATRASADO',
-                uid: appUser.uid,
+                uid: currentUser?.uid || appUser.uid,
                 empresaId: selectedEmpresa?.id || p.empresaId
               }).catch(console.error);
             }
@@ -126,7 +126,7 @@ export default function Parcelas() {
     try {
       await updateDoc(doc(db, 'parcelas', parcela.id), { 
         status: 'PAGO',
-        uid: appUser.uid,
+        uid: currentUser?.uid || appUser.uid,
         empresaId: selectedEmpresa.id
       });
       alert('Status da parcela atualizado para PAGO.');
