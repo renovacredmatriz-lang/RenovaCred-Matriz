@@ -16,10 +16,10 @@ service cloud.firestore {
     }
     
     function isMaster() {
-      let userData = getUserData();
       return isAuthenticated() && (
-        (userData != null && userData.role == 'MASTER') || 
-        (request.auth.token.email == "renovacredmatriz@gmail.com" && request.auth.token.email_verified == true)
+        (request.auth.token.email == "renovacredmatriz@gmail.com") ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MASTER')
       );
     }
     
@@ -105,7 +105,8 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.auth.uid == request.resource.data.uid
         && request.resource.data.empresaId != null;
-      allow update, delete: if false; // Immutable ledger
+      allow update: if false; // Immutable ledger
+      allow delete: if isMaster();
     }
 
     match /logs/{logId} {
