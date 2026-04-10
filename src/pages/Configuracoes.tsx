@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { doc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, updateDoc, collection, getDocs, query, where, writeBatch, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { RefreshCw, ShieldAlert } from 'lucide-react';
+import { RefreshCw, ShieldAlert, Trash2, X, AlertTriangle } from 'lucide-react';
 
 export default function Configuracoes() {
   const { appUser } = useAuth();
@@ -13,6 +13,59 @@ export default function Configuracoes() {
   const [isSaving, setIsSaving] = useState(false);
 
   const [isRecalculating, setIsRecalculating] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetProgress, setResetProgress] = useState('');
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+
+  const handleResetBaseDados = async () => {
+    if (confirmText !== 'CONFIRMAR') {
+      alert('Por favor, digite CONFIRMAR para prosseguir.');
+      return;
+    }
+
+    setIsResetting(true);
+    setIsResetModalOpen(false);
+    setConfirmText('');
+
+    const colecoesParaLimpar = [
+      'movimentacoes',
+      'parcelas',
+      'negociacoes',
+      'agendamentos',
+      'clientes'
+    ];
+
+    try {
+      for (const collName of colecoesParaLimpar) {
+        setResetProgress(`Limpando coleção: ${collName}...`);
+        
+        while (true) {
+          const q = query(collection(db, collName), limit(500));
+          const snapshot = await getDocs(q);
+          
+          if (snapshot.empty) break;
+
+          const batch = writeBatch(db);
+          snapshot.docs.forEach(doc => batch.delete(doc.ref));
+          
+          await batch.commit();
+          
+          // Pausa de 100ms entre batches para evitar sobrecarga
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+
+      setResetProgress('');
+      alert('Base de dados resetada com sucesso! (Apenas dados operacionais foram removidos)');
+    } catch (error) {
+      console.error("Erro ao resetar base de dados:", error);
+      alert('Erro ao resetar base de dados. Verifique o console.');
+      setResetProgress('');
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   const handleRecalcularDebitos = async () => {
     if (!window.confirm('Deseja recalcular o débito de TODOS os clientes com base nas parcelas pendentes? Esta operação pode levar alguns instantes.')) {
@@ -142,11 +195,34 @@ export default function Configuracoes() {
                     variant="secondary" 
                     className="bg-white border-red-200 text-red-700 hover:bg-red-50"
                     onClick={handleRecalcularDebitos}
-                    disabled={isRecalculating}
+                    disabled={isRecalculating || isResetting}
                   >
                     <RefreshCw className={`w-4 h-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
                     {isRecalculating ? 'Processando...' : 'Recalcular Todos os Débitos'}
                   </Button>
+                </div>
+
+                <div className="bg-red-100 border border-red-200 p-4 rounded-lg">
+                  <h4 className="text-sm font-bold text-red-900 mb-1 flex items-center">
+                    <AlertTriangle className="w-4 h-4 mr-1" />
+                    Resetar Base de Dados
+                  </h4>
+                  <p className="text-xs text-red-700 mb-4">
+                    ATENÇÃO: Esta ação excluirá permanentemente todos os clientes, negociações, parcelas, movimentações e agendamentos. Os usuários e configurações não serão afetados.
+                  </p>
+                  <Button 
+                    variant="danger" 
+                    onClick={() => setIsResetModalOpen(true)}
+                    disabled={isResetting || isRecalculating}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Resetar Base de Dados
+                  </Button>
+                  {isResetting && (
+                    <p className="mt-2 text-xs font-medium text-red-800 animate-pulse">
+                      {resetProgress}
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -180,6 +256,59 @@ export default function Configuracoes() {
           </CardContent>
         </Card>
       </>
+    )}
+
+    {/* Modal de Confirmação de Reset */}
+    {isResetModalOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-red-600 flex items-center">
+              <AlertTriangle className="w-5 h-5 mr-2" />
+              Confirmar Reset Total
+            </h3>
+            <button onClick={() => setIsResetModalOpen(false)} className="text-gray-400 hover:text-gray-500">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          <p className="text-sm text-gray-600 mb-6">
+            Esta ação é <strong>irreversível</strong>. Todos os dados operacionais (clientes, negociações, parcelas, etc.) serão excluídos permanentemente.
+          </p>
+          
+          <div className="space-y-4">
+            <p className="text-xs font-medium text-gray-700">
+              Para confirmar, digite <strong>CONFIRMAR</strong> abaixo:
+            </p>
+            <Input
+              placeholder="Digite CONFIRMAR"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+            />
+            
+            <div className="flex space-x-3 pt-2">
+              <Button 
+                variant="secondary" 
+                className="flex-1"
+                onClick={() => {
+                  setIsResetModalOpen(false);
+                  setConfirmText('');
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                variant="danger" 
+                className="flex-1"
+                onClick={handleResetBaseDados}
+                disabled={confirmText !== 'CONFIRMAR'}
+              >
+                Resetar Agora
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
     )}
   </div>
 );
