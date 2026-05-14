@@ -35,18 +35,18 @@ interface Empresa {
 }
 
 const TEMPLATES = [
-  { id: 1, label: 'Lembrete vencendo hoje', text: 'Olá, [NOME]!\nAqui é da RenovaCred, referente à [EMPRESA].\nPassando para lembrar que seu pagamento vence hoje.\nCaso já tenha realizado, desconsidere.\nSe precisar, estamos à disposição.' },
-  { id: 2, label: 'Parcela vencida', text: 'Olá, [NOME].\nAqui é da RenovaCred, cobrando em nome da [EMPRESA].\nIdentificamos um pagamento em atraso.\nPodemos te ajudar a regularizar?' },
-  { id: 3, label: 'Cobrança inicial', text: 'Olá, [NOME]!\nAqui é da RenovaCred, representando a [EMPRESA].\nEstamos entrando em contato para tratar de uma pendência financeira.\nFale conosco para regularizar.' },
-  { id: 4, label: 'Cobrança amigável', text: 'Olá, [NOME]!\nAqui é da RenovaCred.\nQueremos te ajudar a resolver sua pendência com a [EMPRESA] da melhor forma possível.' },
-  { id: 5, label: 'Proposta de acordo', text: 'Olá, [NOME].\nTemos condições especiais para regularizar sua situação com a [EMPRESA].\nPodemos conversar?' },
-  { id: 6, label: 'Último lembrete', text: 'Olá, [NOME].\nEste é um último lembrete sobre sua pendência com a [EMPRESA].\nEvite restrições — entre em contato.' },
-  { id: 7, label: 'Confirmação de contato', text: 'Olá, [NOME]!\nAqui é da RenovaCred.\nEstamos tentando contato sobre sua situação com a [EMPRESA].' },
-  { id: 8, label: 'Aviso de atraso prolongado', text: 'Olá, [NOME].\nIdentificamos atraso prolongado com a [EMPRESA].\nPrecisamos tratar com urgência.' },
-  { id: 9, label: 'Lembrete com valor', text: 'Olá, [NOME]!\nSua pendência com a [EMPRESA] é de aproximadamente R$ [VALOR].\nPodemos negociar?' },
-  { id: 10, label: 'Mensagem neutra', text: 'Olá, [NOME].\nAqui é da RenovaCred, referente à [EMPRESA].\nPor favor, entre em contato conosco.' },
-  { id: 11, label: 'Notificação extrajudicial', text: 'Olá, [NOME].\n\nIdentificamos pendências em aberto junto à [EMPRESA].\n\nCaso não haja regularização ou retorno em breve, poderá ser emitida uma Notificação Extrajudicial para formalização da cobrança.\n\nEntre em contato para evitarmos medidas adicionais.' },
-  { id: 12, label: 'Aviso SPC/Serasa', text: 'Olá, [NOME].\n\nSua pendência junto à [EMPRESA] continua em aberto.\n\nA ausência de regularização poderá resultar no encaminhamento do débito aos órgãos de proteção ao crédito, como SPC e Serasa, conforme previsto contratualmente.\n\nEntre em contato para negociação.' }
+  { id: 1, label: 'Lembrete vencendo hoje', text: 'Olá, [NOME]!\nAqui é da RenovaCred, referente à [EMPRESA].\n\nSua parcela no valor de [VALOR_PARCELA] vence hoje.\nCaso já tenha realizado, desconsidere.\nSe precisar, estamos à disposição.' },
+  { id: 2, label: 'Parcela vencida', text: 'Olá, [NOME].\nAqui é da RenovaCred, cobrando em nome da [EMPRESA].\n\nIdentificamos um pagamento em atraso há [DIAS_ATRASO] dias.\n\n[PARCELAS_ATRASADAS]\n\nPodemos te ajudar a regularizar?' },
+  { id: 3, label: 'Cobrança inicial', text: 'Olá, [NOME]!\nAqui é da RenovaCred, representando a [EMPRESA].\n\nIdentificamos uma pendência no valor de [VALOR] referente ao(s) título(s) [NUMERO_TITULOS].\n\nFale conosco para regularizar.' },
+  { id: 4, label: 'Cobrança amigável', text: 'Olá, [NOME]!\nAqui é da RenovaCred.\n\nQueremos te ajudar a resolver sua pendência de [VALOR] referente ao(s) título(s) [NUMERO_TITULOS] com a [EMPRESA] da melhor forma possível.\nPodemos conversar?' },
+  { id: 5, label: 'Proposta de acordo', text: 'Olá, [NOME].\n\nTemos condições especiais para regularizar sua pendência de [VALOR] com a [EMPRESA].\n\nPodemos conversar para encontrar uma solução?' },
+  { id: 6, label: 'Último lembrete', text: 'Olá, [NOME].\n\nEste é um último lembrete sobre sua pendência de [VALOR] com a [EMPRESA] (Títulos: [NUMERO_TITULOS]).\nEvite restrições — entre em contato hoje mesmo.' },
+  { id: 7, label: 'Confirmação de contato', text: 'Olá, [NOME]!\nAqui é da RenovaCred.\nEstamos tentando contato sobre sua situação de [VALOR] com a [EMPRESA].' },
+  { id: 8, label: 'Aviso de atraso prolongado', text: 'Olá, [NOME].\nIdentificamos atraso prolongado com a [EMPRESA].\n\n[PARCELAS_ATRASADAS]\n\nPrecisamos tratar com urgência.' },
+  { id: 9, label: 'Lembrete de Vencimento Próximo', text: 'Olá, [NOME]!\n\nSua próxima parcela de [VALOR_PARCELA] vence em [DIAS_VENCIMENTO] dias (data: [VENCIMENTO]).\n\nAgradecemos sua atenção.' },
+  { id: 10, label: 'Mensagem neutra', text: 'Olá, [NOME].\nAqui é da RenovaCred, referente à [EMPRESA] (Pendência identificada: [VALOR]).\nPor favor, entre em contato conosco.' },
+  { id: 11, label: 'Notificação extrajudicial', text: 'Olá, [NOME].\n\nIdentificamos pendências no valor de [VALOR] em aberto junto à [EMPRESA] referente ao(s) título(s) [NUMERO_TITULOS].\n\nCaso não haja regularização ou retorno em breve, poderá ser emitida uma Notificação Extrajudicial para formalização da cobrança.\n\nEntre em contato para evitarmos medidas adicionais.' },
+  { id: 12, label: 'Aviso SPC/Serasa', text: 'Olá, [NOME].\n\nSua pendência de [VALOR] junto à [EMPRESA] continua em aberto.\n\nA ausência de regularização poderá resultar no encaminhamento do débito aos órgãos de proteção ao crédito, como SPC e Serasa, conforme previsto contratualmente.\n\n[PARCELAS_ATRASADAS]\n\nEntre em contato para negociação.' }
 ];
 
 export default function MensagensAuto() {
