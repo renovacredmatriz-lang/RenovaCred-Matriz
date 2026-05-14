@@ -14,11 +14,17 @@ import Agendamentos from './pages/Agendamentos';
 import Relatorios from './pages/Relatorios';
 import Configuracoes from './pages/Configuracoes';
 import SelecaoEmpresa from './pages/SelecaoEmpresa';
+import Fatura from './pages/Fatura';
+import Recibo from './pages/Recibo';
+import MensagensAuto from './pages/MensagensAuto';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from './firebase';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { currentUser, appUser, loading } = useAuth();
-  const { selectedEmpresa, clearSelectedEmpresa } = useEmpresa();
+  const { currentUser, appUser, loading, isCheckingAuth, requirePasswordChange } = useAuth();
+  const { selectedEmpresa, setSelectedEmpresa, clearSelectedEmpresa } = useEmpresa();
   const location = useLocation();
+  const [loadingEmpresaCredor, setLoadingEmpresaCredor] = React.useState(false);
   
   React.useEffect(() => {
     if (appUser?.role === 'MASTER' && selectedEmpresa) {
@@ -26,40 +32,55 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
     }
   }, [appUser, selectedEmpresa, clearSelectedEmpresa]);
 
-  if (loading) {
+  React.useEffect(() => {
+    if (appUser?.role === 'CREDOR' && appUser.empresaId && !selectedEmpresa) {
+      setLoadingEmpresaCredor(true);
+      getDoc(doc(db, 'empresas', appUser.empresaId)).then(docSnap => {
+        if (docSnap.exists()) {
+          setSelectedEmpresa({
+            id: docSnap.id,
+            nome: docSnap.data().nomeFantasia || docSnap.data().nome || 'Minha Empresa',
+            nomeFantasia: docSnap.data().nomeFantasia,
+            ativo: docSnap.data().ativo,
+            cobradorId: docSnap.data().cobradorId
+          });
+        }
+        setLoadingEmpresaCredor(false);
+      }).catch(err => {
+        console.error("Erro ao carregar empresa do credor", err);
+        setLoadingEmpresaCredor(false);
+      });
+    }
+  }, [appUser, selectedEmpresa, setSelectedEmpresa]);
+
+  if (loading || isCheckingAuth || loadingEmpresaCredor) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">Carregando...</p>
+          <p className="text-gray-600 font-medium">Validando Acesso Seguro...</p>
         </div>
       </div>
     );
   }
 
-  if (!currentUser) {
+  if (!currentUser || requirePasswordChange) {
     return <Navigate to="/login" />;
   }
   
   if (!appUser) {
-    // User is authenticated but appUser failed to load (e.g. permission error)
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4 text-center">
-        <h1 className="text-xl font-bold text-red-600 mb-2">Erro de Acesso</h1>
-        <p className="text-gray-600 mb-4">Não foi possível carregar seu perfil. Verifique suas permissões ou entre em contato com o administrador.</p>
-        <button 
-          onClick={() => window.location.reload()}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-        >
-          Tentar Novamente
-        </button>
-      </div>
-    );
+    // Se autenticado mas sem perfil autorizado (o AuthContext já deve ter feito logout, mas por segurança:)
+    return <Navigate to="/login" />;
+  }
+
+  // Se for CREDOR tentanto acessar a raiz, joga para negociações
+  if (appUser.role === 'CREDOR' && location.pathname === '/') {
+    return <Navigate to="/negociacoes" />;
   }
 
   // Se não tiver empresa selecionada, redireciona para seleção (exceto se já estiver na tela de seleção)
-  // MASTER não tem obrigatoriedade de seleção de empresa
-  if (appUser.role !== 'MASTER' && !selectedEmpresa && location.pathname !== '/selecionar-empresa') {
+  // MASTER não tem obrigatoriedade de seleção de empresa, e CREDOR já tem ela carregada acima
+  if (appUser.role !== 'MASTER' && appUser.role !== 'CREDOR' && !selectedEmpresa && location.pathname !== '/selecionar-empresa') {
     return <Navigate to="/selecionar-empresa" />;
   }
 
@@ -89,6 +110,9 @@ export default function App() {
               <Route path="agendamentos" element={<Agendamentos />} />
               <Route path="relatorios" element={<Relatorios />} />
               <Route path="configuracoes" element={<Configuracoes />} />
+              <Route path="fatura" element={<Fatura />} />
+              <Route path="recibo" element={<Recibo />} />
+              <Route path="cobranca-rapida" element={<MensagensAuto />} />
             </Route>
           </Routes>
         </BrowserRouter>

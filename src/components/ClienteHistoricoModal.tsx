@@ -15,6 +15,7 @@ interface Movimentacao {
   saldo_anterior: number;
   saldo_atual: number;
   data: string;
+  numero_parcela?: number;
 }
 
 interface Negociacao {
@@ -23,6 +24,7 @@ interface Negociacao {
   valor: number;
   valor_entrada?: number;
   numero_parcelas?: number;
+  numeroTitulo?: string;
   status: string;
   createdAt: string;
 }
@@ -92,6 +94,7 @@ export function ClienteHistoricoModal({ cliente, onClose }: ClienteHistoricoModa
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Nº Título</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Valor</th>
@@ -103,6 +106,7 @@ export function ClienteHistoricoModal({ cliente, onClose }: ClienteHistoricoModa
                         {negociacoes.map(neg => (
                           <tr key={neg.id} className={neg.status === 'ESTORNADO' ? 'bg-red-50' : ''}>
                             <td className="px-4 py-2 text-sm text-gray-500">{new Date(neg.createdAt).toLocaleDateString('pt-BR')}</td>
+                            <td className="px-4 py-2 text-sm text-gray-500">{neg.numeroTitulo || '-'}</td>
                             <td className="px-4 py-2 text-sm text-gray-900">{neg.tipo}</td>
                             <td className="px-4 py-2 text-sm text-gray-500">{neg.status}</td>
                             <td className="px-4 py-2 text-sm font-medium">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(neg.valor)}</td>
@@ -136,7 +140,14 @@ export function ClienteHistoricoModal({ cliente, onClose }: ClienteHistoricoModa
                         {movimentacoes.map(mov => (
                           <tr key={mov.id} className={mov.tipo === 'ESTORNO' ? 'bg-red-50' : ''}>
                             <td className="px-4 py-2 text-sm text-gray-500">{new Date(mov.data).toLocaleDateString('pt-BR')} {new Date(mov.data).toLocaleTimeString('pt-BR')}</td>
-                            <td className="px-4 py-2 text-sm text-gray-900">{mov.tipo}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">
+                              {mov.tipo}
+                              {mov.numero_parcela && (
+                                <span className="ml-1 text-xs text-blue-600 font-medium">
+                                  (Parc. {mov.numero_parcela})
+                                </span>
+                              )}
+                            </td>
                             <td className={`px-4 py-2 text-sm font-medium ${mov.tipo === 'ESTORNO' ? 'text-red-600' : 'text-green-600'}`}>
                               {mov.tipo === 'ESTORNO' ? '+' : '-'}{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mov.valor)}
                             </td>

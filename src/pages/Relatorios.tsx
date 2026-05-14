@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, OperationType } from '../contexts/AuthContext';
 import { useEmpresa } from '../contexts/EmpresaContext';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -11,26 +11,32 @@ interface Movimentacao {
   id: string;
   cliente_id: string;
   negociacao_id?: string;
+  titulo_id?: string;
+  parcela_id?: string;
+  numero_parcela?: number;
   empresaId: string;
-  tipo: 'PAGAMENTO' | 'NEGOCIACAO' | 'AJUSTE' | 'ESTORNO';
+  numeroTitulo?: string;
+  tipo: 'PAGAMENTO' | 'NEGOCIACAO' | 'AJUSTE' | 'ESTORNO' | 'ENTRADA' | 'QUITACAO' | 'RESGATE';
   valor: number;
   saldo_anterior: number;
   saldo_atual: number;
   data: string;
   cobrador_id: string;
+  negociacao_status?: 'ATIVO' | 'ESTORNADO';
 }
 
 interface Cliente { id: string; nome: string; empresaId: string; codigo?: string; }
-interface Empresa { id: string; nome: string; }
+interface Empresa { id: string; nome: string; nomeFantasia?: string; }
 interface Cobrador { id: string; nome: string; comissao_percentual?: number; }
 
 export default function Relatorios() {
-  const { appUser } = useAuth();
+  const { appUser, handlePermissionError } = useAuth();
   const { selectedEmpresa } = useEmpresa();
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [cobradores, setCobradores] = useState<Cobrador[]>([]);
+  const [negociacoes, setNegociacoes] = useState<Record<string, string>>({});
   
   const [filtros, setFiltros] = useState({
     dataInicio: '',
@@ -51,9 +57,21 @@ export default function Relatorios() {
         codigo: doc.data().codigo
       }));
       setClientes(docs.sort((a, b) => a.nome.localeCompare(b.nome)));
+    }, (error) => {
+      handlePermissionError(error, OperationType.LIST, 'clientes');
     });
-    const unsubEmpresas = onSnapshot(collection(db, 'empresas'), (snapshot) => {
-      setEmpresas(snapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome })));
+    let qEmpresas = query(collection(db, 'empresas'));
+    if (appUser?.role === 'COBRADOR') {
+      qEmpresas = query(collection(db, 'empresas'), where('cobradorId', '==', appUser.uid));
+    }
+    const unsubEmpresas = onSnapshot(qEmpresas, (snapshot) => {
+      setEmpresas(snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        nome: doc.data().nome,
+        nomeFantasia: doc.data().nomeFantasia
+      } as Empresa)));
+    }, (error) => {
+      handlePermissionError(error, OperationType.LIST, 'empresas');
     });
     const unsubCobradores = onSnapshot(collection(db, 'users'), (snapshot) => {
       setCobradores(snapshot.docs.filter(doc => doc.data().role === 'COBRADOR').map(doc => ({ 
@@ -61,6 +79,8 @@ export default function Relatorios() {
         nome: doc.data().nome,
         comissao_percentual: doc.data().comissao_percentual || 0
       })));
+    }, (error) => {
+      handlePermissionError(error, OperationType.LIST, 'users');
     });
     
     let qMovimentacoes;
@@ -76,6 +96,18 @@ export default function Relatorios() {
         .map(doc => ({ id: doc.id, ...doc.data() } as Movimentacao))
         .filter(m => m.empresaId);
       setMovimentacoes(validMovimentacoes);
+    }, (error) => {
+      handlePermissionError(error, OperationType.LIST, 'movimentacoes');
+    });
+
+    const qNeg = selectedEmpresa && appUser?.role !== 'MASTER' 
+      ? query(collection(db, 'negociacoes'), where('empresaId', '==', selectedEmpresa.id))
+      : query(collection(db, 'negociacoes'));
+
+    const unsubNegociacoes = onSnapshot(qNeg, (snapshot) => {
+      const map: Record<string, string> = {};
+      snapshot.docs.forEach(d => { map[d.id] = d.data().status; });
+      setNegociacoes(map);
     });
 
     return () => {
@@ -83,6 +115,7 @@ export default function Relatorios() {
       unsubEmpresas();
       unsubCobradores();
       unsubMovimentacoes();
+      unsubNegociacoes();
     };
   }, [selectedEmpresa]);
 
@@ -120,7 +153,13 @@ export default function Relatorios() {
       if (!clienteNome.includes(search) && !clienteCodigo.includes(search)) return false;
     }
     if (filtros.cobrador_id && mov.cobrador_id !== filtros.cobrador_id) return false;
-    if (filtros.status && mov.tipo !== filtros.status) return false;
+    if (filtros.status) {
+      if (filtros.status === 'PAGAMENTO') {
+        if (!['PAGAMENTO', 'ENTRADA', 'QUITACAO', 'RESGATE'].includes(mov.tipo)) return false;
+      } else {
+        if (mov.tipo !== filtros.status) return false;
+      }
+    }
     
     if (filtros.dataInicio) {
       const dInicio = new Date(filtros.dataInicio + 'T00:00:00Z');
@@ -134,16 +173,21 @@ export default function Relatorios() {
     // Se for cobrador, só vê as próprias
     if (appUser?.role === 'COBRADOR' && mov.cobrador_id !== appUser.id) return false;
 
-    // Apenas pagamentos e estornos geram comissão (positiva ou negativa)
-    if (mov.tipo !== 'PAGAMENTO' && mov.tipo !== 'ESTORNO') return false;
+    // Apenas receitas reais, estornos e entradas geram comissão / relatório financeiro
+    if (!['PAGAMENTO', 'ENTRADA', 'QUITACAO', 'RESGATE', 'ESTORNO'].includes(mov.tipo)) return false;
+    
+    // SOURCE OF TRUTH CHECK: Prioritizes parent negotiation status
+    const currentNegStatus = mov.negociacao_id ? negociacoes[mov.negociacao_id] : mov.negociacao_status;
+    if (currentNegStatus === 'ESTORNADO') return false;
 
     return true;
   });
 
   const getClienteNome = (id: string) => clientes.find(c => c.id === id)?.nome || 'Desconhecido';
-  const getEmpresaNome = (cliente_id: string) => {
-    const cliente = clientes.find(c => c.id === cliente_id);
-    return empresas.find(e => e.id === (cliente?.empresaId || ''))?.nome || 'Desconhecida';
+  const getEmpresaNome = (empresaId: string) => {
+    const empresa = empresas.find(e => e.id === empresaId);
+    if (!empresa) return 'Desconhecida';
+    return empresa.nomeFantasia || empresa.nome || "Empresa sem nome";
   };
   const getCobradorNome = (id: string) => cobradores.find(c => c.id === id)?.nome || 'Desconhecido';
   
@@ -160,7 +204,7 @@ export default function Relatorios() {
   };
 
   const totalComissao = filteredMovimentacoes.reduce((acc, mov) => acc + calcularComissao(mov), 0);
-  const totalRecebido = filteredMovimentacoes.reduce((acc, mov) => mov.tipo === 'PAGAMENTO' ? acc + mov.valor : acc - mov.valor, 0);
+  const totalRecebido = filteredMovimentacoes.reduce((acc, mov) => ['PAGAMENTO', 'ENTRADA', 'QUITACAO', 'RESGATE'].includes(mov.tipo) ? acc + mov.valor : acc - mov.valor, 0);
 
   return (
     <div className="space-y-6">
@@ -267,7 +311,7 @@ export default function Relatorios() {
                   onChange={(e) => setFiltros({ ...filtros, status: e.target.value })}
                 >
                   <option value="">Todos</option>
-                  <option value="PAGAMENTO">Pagamento</option>
+                  <option value="PAGAMENTO">Recebimentos (Pagamento, Entrada, Quitação, Resgate)</option>
                   <option value="ESTORNO">Estorno</option>
                   <option value="NEGOCIACAO">Negociação</option>
                   <option value="AJUSTE">Ajuste</option>
@@ -303,6 +347,7 @@ export default function Relatorios() {
             <thead className="bg-gray-50 print:bg-white">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nº Título</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente/Empresa</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor Recebido</th>
@@ -316,9 +361,17 @@ export default function Relatorios() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {new Date(mov.data).toLocaleDateString('pt-BR')}
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {mov.numeroTitulo || '-'}
+                    {mov.numero_parcela && (
+                      <span className="ml-1 text-xs text-blue-600 font-medium">
+                        (Parc. {mov.numero_parcela})
+                      </span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{getClienteNome(mov.cliente_id)}</div>
-                    <div className="text-sm text-gray-500">{getEmpresaNome(mov.cliente_id)}</div>
+                    <div className="text-sm text-gray-500">{getEmpresaNome(mov.empresaId)}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${mov.tipo === 'ESTORNO' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>

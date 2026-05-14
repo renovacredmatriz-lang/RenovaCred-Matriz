@@ -1,118 +1,99 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
-    function isAuthenticated() {
+
+    function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function getUserData() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
-        : null;
+      let docSnap = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return docSnap != null ? docSnap.data : null;
     }
-    
+
     function isMaster() {
-      return isAuthenticated() && (
-        (request.auth.token.email == "renovacredmatriz@gmail.com") ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MASTER')
-      );
-    }
-    
-    function isCobrador() {
-      return isAuthenticated() && getUserData().role == 'COBRADOR';
-    }
-    
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isSignedIn() && getUserData() != null && getUserData().role == 'MASTER';
     }
 
-    // ===============================================================
-    // Rules
-    // ===============================================================
-    
+    function isCredor() {
+      return isSignedIn() && getUserData() != null && getUserData().role == 'CREDOR';
+    }
+
+    function canAccessEmpresa(empresaId) {
+      return isSignedIn() &&
+             empresaId is string &&
+             empresaId != "" &&
+             (!isCredor() || (isCredor() && getUserData() != null && getUserData().empresaId == empresaId));
+    }
+
+    function hasEmpresa(doc) {
+      return doc != null && 'empresaId' in doc && doc.empresaId is string && doc.empresaId != "";
+    }
+
+    // USERS
     match /users/{userId} {
-      allow read: if isMaster() || isOwner(userId) || (isAuthenticated() && (request.auth.uid == resource.data.uid || request.auth.token.email == resource.data.email));
-      allow create: if isMaster() || (isOwner(userId) && request.resource.data.role == 'COBRADOR');
-      allow update: if isMaster() || 
-                    (isAuthenticated() && request.auth.token.email == resource.data.email && 
-                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid']) &&
-                     request.resource.data.uid == request.auth.uid) ||
-                    (isAuthenticated() && request.auth.uid == resource.data.uid && request.resource.data.role == resource.data.role);
-      allow delete: if isMaster();
+      allow read: if isSignedIn();
+      allow update: if isSignedIn() && request.auth.uid == userId;
+      allow create, delete: if isMaster();
     }
-    
-    match /cobradores/{cobradorId} {
-      allow read: if isMaster() || (isAuthenticated() && resource.data.email == request.auth.token.email);
-      allow update: if isMaster() || (isAuthenticated() && resource.data.email == request.auth.token.email);
+
+    // EMPRESAS
+    match /empresas/{id} {
+      allow read: if isSignedIn();
+      allow create: if isMaster() || (isSignedIn() && !isCredor());
+      allow update, delete: if isMaster();
     }
-    
-    match /empresas/{empresaId} {
-      allow read: if isAuthenticated();
-      allow create, update, delete: if isMaster();
+
+    // AUX DATA
+    match /auxData/{id} {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
     }
-    
-    match /clientes/{docId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated()
-        && request.auth.uid == request.resource.data.uid
-        && request.resource.data.empresaId != null;
-      allow update: if isMaster() || (isAuthenticated()
-        && request.auth.uid == resource.data.uid
-        && resource.data.empresaId != null);
-      allow delete: if isMaster();
+
+    // STATS
+    match /stats/{id} {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
     }
-    
-    match /negociacoes/{negociacaoId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated()
-        && request.auth.uid == request.resource.data.uid
-        && request.resource.data.empresaId != null;
-      allow update: if isMaster() || (isAuthenticated()
-        && request.auth.uid == resource.data.uid
-        && resource.data.empresaId != null);
-      allow delete: if isMaster();
-    }
-    
-    match /parcelas/{parcelaId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated()
-        && request.auth.uid == request.resource.data.uid
-        && request.resource.data.empresaId != null;
-      allow update: if isMaster() || (isAuthenticated()
-        && request.auth.uid == resource.data.uid
-        && resource.data.empresaId != null);
-      allow delete: if isMaster();
-    }
-    
-    match /agendamentos/{agendamentoId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated()
-        && request.auth.uid == request.resource.data.uid
-        && request.resource.data.empresaId != null;
-      allow update: if isMaster() || (isAuthenticated()
-        && request.auth.uid == resource.data.uid
-        && resource.data.empresaId != null);
+
+    // NEGOCIACOES
+    match /negociacoes/{id} {
+      allow read: if isSignedIn();
+      allow create: if canAccessEmpresa(request.resource.data.empresaId);
+      allow update: if isSignedIn() && canAccessEmpresa(request.resource.data.empresaId);
       allow delete: if isMaster();
     }
 
-    match /movimentacoes/{movimentacaoId} {
-      allow read: if isAuthenticated();
-      allow create: if request.auth != null
-        && request.auth.uid == request.resource.data.uid
-        && request.resource.data.empresaId != null;
-      allow update: if false; // Immutable ledger
+    // MOVIMENTACOES
+    match /movimentacoes/{id} {
+      allow read: if isSignedIn();
+      allow create: if canAccessEmpresa(request.resource.data.empresaId);
+      allow update: if isSignedIn() && canAccessEmpresa(request.resource.data.empresaId);
       allow delete: if isMaster();
     }
 
-    match /logs/{logId} {
-      allow read: if isMaster();
-      allow create: if isAuthenticated();
-      allow update, delete: if false; // Immutable logs
+    // PARCELAS
+    match /parcelas/{id} {
+      allow read: if isSignedIn();
+      allow create: if canAccessEmpresa(request.resource.data.empresaId);
+      allow update: if isSignedIn() && canAccessEmpresa(request.resource.data.empresaId);
+      allow delete: if isMaster();
+    }
+
+    // CLIENTES
+    match /clientes/{id} {
+      allow read: if isSignedIn();
+      allow create: if canAccessEmpresa(request.resource.data.empresaId);
+      allow update: if isSignedIn() && canAccessEmpresa(request.resource.data.empresaId);
+      allow delete: if isMaster();
+    }
+
+    // AGENDAMENTOS
+    match /agendamentos/{id} {
+      allow read: if isSignedIn() && canAccessEmpresa(resource.data.empresaId);
+      allow create: if canAccessEmpresa(request.resource.data.empresaId);
+      allow update: if isSignedIn() && canAccessEmpresa(request.resource.data.empresaId);
+      allow delete: if isMaster();
     }
   }
 }

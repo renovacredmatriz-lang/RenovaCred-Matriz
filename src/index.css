@@ -1,1 +1,48 @@
 @import "tailwindcss";
+
+@page {
+  size: A4;
+  margin: 10mm;
+}
+
+@media print {
+  body {
+    margin: 0;
+    padding: 0;
+    zoom: 0.95;
+  }
+
+  .recibo-container {
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .recibo-container * {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    page-break-after: avoid;
+  }
+
+  .bloco-final-fatura {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .pix-container {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  img {
+    max-width: 100%;
+    page-break-inside: avoid;
+  }
+
+  html, body {
+    height: auto;
+    overflow: visible;
+  }
+}

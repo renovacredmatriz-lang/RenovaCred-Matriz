@@ -1,15 +1,18 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth, db } from '../firebase';
-import { onAuthStateChanged, User as FirebaseUser, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { auth, db, secondaryAuth } from '../firebase';
+import { onAuthStateChanged, User as FirebaseUser, signInWithEmailAndPassword, updatePassword, signOut, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 
 interface AppUser {
   id: string;
   uid: string;
+  username: string;
   nome: string;
   email: string;
-  role: 'MASTER' | 'COBRADOR';
+  role: 'MASTER' | 'COBRADOR' | 'CREDOR';
   ativo: boolean;
+  primeiroAcesso?: boolean;
+  empresaId?: string;
   foto_perfil?: string;
   comissao_percentual?: number;
   createdAt?: string;
@@ -19,8 +22,41 @@ interface AuthContextType {
   currentUser: FirebaseUser | null;
   appUser: AppUser | null;
   loading: boolean;
-  loginWithGoogle: () => Promise<void>;
+  isCheckingAuth: boolean;
+  authError: string | null;
+  requirePasswordChange: boolean;
+  loginWithCredentials: (username: string, pass: string) => Promise<void>;
+  changePassword: (newPass: string) => Promise<void>;
   logout: () => Promise<void>;
+  handlePermissionError: (error: any, operation: string, path: string) => Promise<void>;
+}
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: string;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -33,170 +69,110 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [requirePasswordChange, setRequirePasswordChange] = useState(false);
+
+  const handlePermissionError = async (error: any, operation: string, path: string) => {
+    const errInfo: FirestoreErrorInfo = {
+      error: error instanceof Error ? error.message : String(error),
+      authInfo: {
+        userId: auth.currentUser?.uid,
+        email: auth.currentUser?.email,
+        emailVerified: auth.currentUser?.emailVerified,
+        isAnonymous: auth.currentUser?.isAnonymous,
+        tenantId: auth.currentUser?.tenantId,
+        providerInfo: auth.currentUser?.providerData.map(provider => ({
+          providerId: provider.providerId,
+          displayName: provider.displayName,
+          email: provider.email,
+          photoUrl: provider.photoURL
+        })) || []
+      },
+      operationType: operation,
+      path
+    };
+    
+    console.error("Firestore Error Details:", JSON.stringify(errInfo, null, 2));
+    
+    if (error.code === 'permission-denied' || error.message?.includes('insufficient permissions')) {
+      setAuthError("Acesso negado: Você não tem permissão para realizar esta operação.");
+    } else {
+      setAuthError(error.message || "Erro de comunicação com o banco de dados.");
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setIsCheckingAuth(true);
       setCurrentUser(user);
-
+      
       if (!user || !user.email) {
         setAppUser(null);
+        setRequirePasswordChange(false);
+        setIsCheckingAuth(false);
         setLoading(false);
         return;
       }
 
-      const email = user.email.toLowerCase();
+      setAuthError(null);
+      const email = user.email.toLowerCase().trim();
 
       try {
-        // 1. Buscar o usuário no Firestore usando o UID (na collection users)
-        let userDocRef: any = null;
-        let userData: any = null;
-
-        const qUsers = query(collection(db, 'users'), where('uid', '==', user.uid));
-        const usersSnapshot = await getDocs(qUsers);
+        // 1. Validação Obrigatória no Firestore
+        const userDocRef = doc(db, 'users', user.uid);
+        let userDocSnap;
+        try {
+          userDocSnap = await getDoc(userDocRef);
+        } catch (error) {
+          await handlePermissionError(error, OperationType.GET, `users/${user.uid}`);
+          throw error;
+        }
         
-        if (!usersSnapshot.empty) {
-          if (usersSnapshot.docs.length > 1) {
-            console.warn(`Aviso: Múltiplos usuários encontrados com o UID ${user.uid} na coleção users. Utilizando o primeiro registro válido.`);
-          }
-          userDocRef = usersSnapshot.docs[0].ref;
-          userData = usersSnapshot.docs[0].data();
-        } else {
-          // Se não achou pelo uid, tenta buscar pelo email na collection users (caso criado pelo MASTER)
-          const qUsersEmail = query(collection(db, 'users'), where('email', '==', email));
-          const usersEmailSnapshot = await getDocs(qUsersEmail);
-          if (!usersEmailSnapshot.empty) {
-            if (usersEmailSnapshot.docs.length > 1) {
-              console.warn(`Aviso: Múltiplos usuários encontrados com o email ${email} na coleção users.`);
-              let bestDoc = usersEmailSnapshot.docs[0];
-              for (const doc of usersEmailSnapshot.docs) {
-                if (doc.data().uid) {
-                  bestDoc = doc;
-                  break;
-                }
-              }
-              userDocRef = bestDoc.ref;
-              userData = bestDoc.data();
-            } else {
-              userDocRef = usersEmailSnapshot.docs[0].ref;
-              userData = usersEmailSnapshot.docs[0].data();
-            }
-          }
+        let userData = null;
+        let finalDocRef = userDocRef;
+
+        if (userDocSnap.exists()) {
+          userData = userDocSnap.data();
         }
 
-        if (userData) {
-          // Usuário encontrado na collection users
-          // Garantir que o campo role exista (migração de tipo_usuario para role)
-          const role = userData.role || userData.tipo_usuario || 'COBRADOR';
-          
-          // Garantir que o campo uid esteja correto e o email esteja em lowercase
-          const updates: any = {};
-          if (userData.uid !== user.uid) updates.uid = user.uid;
-          if (userData.role !== role) updates.role = role;
-          if (userData.email !== email) updates.email = email;
-
-          if (Object.keys(updates).length > 0) {
-            await updateDoc(userDocRef, updates);
-          }
-
-          setAppUser({ id: userDocRef.id, ...userData, ...updates } as AppUser);
-        } else {
-          // 2. Se NÃO existir -> procurar pelo email na coleção "cobradores"
-          let cobradoresSnapshot: any = { empty: true, docs: [] as any[] };
-          const qCobradores = query(collection(db, 'cobradores'), where('email', '==', email));
-          cobradoresSnapshot = await getDocs(qCobradores);
-          
-          if (!cobradoresSnapshot.empty) {
-            if (cobradoresSnapshot.docs.length > 1) {
-              console.warn(`Aviso: Múltiplos cobradores encontrados com o email ${email} na coleção cobradores.`);
-            }
-            // 3. Se encontrar pelo email:
-            let bestCobradorDoc = cobradoresSnapshot.docs[0];
-            for (const doc of cobradoresSnapshot.docs) {
-              if (doc.data().uid) {
-                bestCobradorDoc = doc;
-                break;
-              }
-            }
-            
-            const cobradorDoc = bestCobradorDoc;
-            const cobradorData = cobradorDoc.data();
-            
-            // Atualizar esse registro adicionando o campo "uid" com o user.uid e normalizando email
-            await updateDoc(doc(db, 'cobradores', cobradorDoc.id), { 
-              uid: user.uid,
-              email: email // Garantir lowercase
-            });
-            
-            // 5. Padronizar o sistema para usar apenas UMA collection: "users"
-            const newUser: Omit<AppUser, 'id'> = {
-              uid: user.uid,
-              nome: cobradorData.nome || user.displayName || '',
-              email: email,
-              role: 'COBRADOR',
-              ativo: cobradorData.ativo !== undefined ? cobradorData.ativo : true,
-              comissao_percentual: cobradorData.comissao_percentual || 0,
-              foto_perfil: user.photoURL || undefined,
-              createdAt: cobradorData.createdAt || new Date().toISOString()
-            };
-            
-            await setDoc(doc(db, 'users', user.uid), newUser);
-            setAppUser({ id: user.uid, ...newUser });
-            
-          } else {
-            // 4. Se NÃO encontrar nem por UID nem por email:
-            // Criar automaticamente um novo usuário na coleção "users"
-            
-            // Verificação final de segurança para garantir unicidade por email antes de criar
-            let emailAlreadyExists = false;
-            const checkEmail = await getDocs(query(collection(db, 'users'), where('email', '==', email)));
-            if (!checkEmail.empty) {
-              emailAlreadyExists = true;
-              console.warn(`Aviso: Email ${email} já existe na coleção users. Reutilizando registro para evitar duplicação.`);
-              
-              let bestDoc = checkEmail.docs[0];
-              for (const doc of checkEmail.docs) {
-                if (doc.data().uid) {
-                  bestDoc = doc;
-                  break;
-                }
-              }
-              
-              const existingData = bestDoc.data();
-              const role = existingData.role || existingData.tipo_usuario || 'COBRADOR';
-              
-              const updates: any = {};
-              if (existingData.uid !== user.uid) updates.uid = user.uid;
-              if (existingData.role !== role) updates.role = role;
-              if (existingData.email !== email) updates.email = email;
-
-              if (Object.keys(updates).length > 0) {
-                await updateDoc(bestDoc.ref, updates);
-              }
-              
-              setAppUser({ id: bestDoc.id, ...existingData, ...updates } as AppUser);
-            }
-
-            if (!emailAlreadyExists) {
-              const isMaster = email === 'renovacredmatriz@gmail.com';
-              const newUser: Omit<AppUser, 'id'> = {
-                uid: user.uid,
-                nome: user.displayName || email.split('@')[0] || 'Usuário',
-                email: email,
-                role: isMaster ? 'MASTER' : 'COBRADOR',
-                ativo: true,
-                foto_perfil: user.photoURL || undefined,
-                createdAt: new Date().toISOString()
-              };
-              
-              await setDoc(doc(db, 'users', user.uid), newUser);
-              setAppUser({ id: user.uid, ...newUser });
-            }
-          }
+        // 3. Validação Final de Autorização
+        if (!userData) {
+          throw new Error("Usuário não autorizado no banco de dados. Entre em contato com o administrador.");
         }
-      } catch (error) {
-        console.error("Erro ao carregar dados do usuário:", error);
+
+        const role = userData.role || userData.tipo_usuario || 'COBRADOR';
+        if (!['MASTER', 'COBRADOR', 'CREDOR'].includes(role)) {
+          throw new Error("Acesso restrito: Perfil sem permissão.");
+        }
+
+        if (userData.ativo === false) {
+          throw new Error("Sua conta está inativa. Contate o administrador.");
+        }
+
+        // Sincronizar dados básicos se necessário
+        const updates: any = {};
+        if (userData.uid !== user.uid) updates.uid = user.uid;
+        
+        if (Object.keys(updates).length > 0) {
+          await updateDoc(finalDocRef, updates);
+        }
+
+        if (userData.primeiroAcesso) {
+          setRequirePasswordChange(true);
+        } else {
+          setRequirePasswordChange(false);
+        }
+
+        setAppUser({ id: finalDocRef.id, ...userData, ...updates } as AppUser);
+      } catch (error: any) {
+        console.error("Falha na blindagem de segurança:", error);
+        setAuthError(error.message || "Erro de autorização.");
         setAppUser(null);
+        setCurrentUser(null);
+        await signOut(auth);
       } finally {
+        setIsCheckingAuth(false);
         setLoading(false);
       }
     });
@@ -204,16 +180,103 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return unsubscribe;
   }, []);
 
-  const loginWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+  const loginWithCredentials = async (username: string, pass: string) => {
+    try {
+      setAuthError(null);
+      setIsCheckingAuth(true);
+      const email = `${username.toLowerCase().trim()}@app.renovacred.com`;
+      
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+      } catch (error: any) {
+        // Bootstrap admin user if it doesn't exist and credentials match
+        if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+          if (username.toLowerCase().trim() === 'admin' && pass === 'admin123') {
+            try {
+              const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+              await setDoc(doc(db, 'users', userCredential.user.uid), {
+                uid: userCredential.user.uid,
+                username: 'admin',
+                nome: 'Administrador',
+                email: email,
+                role: 'MASTER',
+                ativo: true,
+                primeiroAcesso: false,
+                createdAt: new Date().toISOString()
+              });
+              return;
+            } catch (bootstrapError) {
+              console.error("Erro ao criar admin:", bootstrapError);
+            }
+          }
+        }
+        throw error;
+      }
+    } catch (error: any) {
+      console.error("Erro no login:", error);
+      setAuthError("Usuário ou senha inválidos.");
+      setIsCheckingAuth(false);
+    }
   };
 
-  const logout = () => signOut(auth);
+  const changePassword = async (newPass: string) => {
+    try {
+      setAuthError(null);
+      setIsCheckingAuth(true); // Signal we are performing an auth operation
+      
+      const user = auth.currentUser;
+      if (!user) throw new Error("Usuário não autenticado");
+
+      // 1. Atualizar a senha no Firebase Authentication
+      await updatePassword(user, newPass);
+
+      // 2. Atualizar o flag de primeiro acesso no Firestore
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, { 
+        primeiroAcesso: false,
+        updatedAt: new Date().toISOString()
+      });
+
+      // 3. Sincronizar estados locais
+      if (appUser) {
+        setAppUser({ ...appUser, primeiroAcesso: false });
+      }
+      setRequirePasswordChange(false);
+      
+    } catch (error: any) {
+      console.error("Erro ao alterar senha:", error);
+      if (error.code === 'auth/requires-recent-login') {
+        setAuthError("Para sua segurança, esta operação requer um login recente. Por favor, saia e entre novamente.");
+      } else {
+        setAuthError("Erro ao alterar a senha. Tente novamente.");
+      }
+      throw error;
+    } finally {
+      setIsCheckingAuth(false);
+    }
+  };
+
+  const logout = async () => {
+    setAppUser(null);
+    setCurrentUser(null);
+    setRequirePasswordChange(false);
+    await signOut(auth);
+  };
 
   return (
-    <AuthContext.Provider value={{ currentUser, appUser, loading, loginWithGoogle, logout }}>
-      {!loading && children}
+    <AuthContext.Provider value={{ 
+      currentUser, 
+      appUser, 
+      loading, 
+      isCheckingAuth, 
+      authError,
+      requirePasswordChange,
+      loginWithCredentials,
+      changePassword,
+      logout,
+      handlePermissionError
+    }}>
+      {children}
     </AuthContext.Provider>
   );
 }

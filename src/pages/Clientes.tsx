@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useAuth, OperationType } from '../contexts/AuthContext';
 import { useEmpresa } from '../contexts/EmpresaContext';
 import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -16,8 +16,15 @@ interface Cliente {
   empresaId: string;
   nome: string;
   endereco: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+  cep?: string;
   telefone1: string;
   telefone2?: string;
+  cpf?: string;
+  numeroTitulos?: string;
   valor_debito: number;
   createdAt: string;
   uid?: string;
@@ -26,12 +33,16 @@ interface Cliente {
 interface Empresa {
   id: string;
   nome: string;
+  nomeFantasia?: string;
 }
 
 export default function Clientes() {
-  const { appUser, currentUser } = useAuth();
+  const { appUser, currentUser, handlePermissionError } = useAuth();
   const { selectedEmpresa } = useEmpresa();
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const [filterCodigo, setFilterCodigo] = useState('');
+  const [filterNome, setFilterNome] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null);
   const [historicoCliente, setHistoricoCliente] = useState<Cliente | null>(null);
@@ -40,10 +51,32 @@ export default function Clientes() {
     codigo: '',
     nome: '',
     endereco: '',
+    numero: '',
+    bairro: '',
+    cidade: '',
+    estado: '',
+    cep: '',
     telefone1: '',
     telefone2: '',
+    cpf: '',
+    numeroTitulos: '',
     valor_debito: 0,
   });
+
+  useEffect(() => {
+    let qEmpresas = query(collection(db, 'empresas'));
+    if (appUser?.role === 'COBRADOR') {
+      qEmpresas = query(collection(db, 'empresas'), where('cobradorId', '==', appUser.uid));
+    }
+    const unsubEmpresas = onSnapshot(qEmpresas, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Empresa));
+      setEmpresas(data);
+    }, (error) => {
+      handlePermissionError(error, OperationType.LIST, 'empresas');
+    });
+
+    return () => unsubEmpresas();
+  }, [appUser]);
 
   useEffect(() => {
     let qClientes;
@@ -59,12 +92,27 @@ export default function Clientes() {
         .map(doc => ({ id: doc.id, ...doc.data() } as Cliente))
         .filter(c => c.empresaId); // Filter out invalid documents
       setClientes(validClientes);
+    }, (error) => {
+      handlePermissionError(error, OperationType.LIST, 'clientes');
     });
 
     return () => {
       unsubClientes();
     };
   }, [selectedEmpresa]);
+
+  const getEmpresaNome = (empresaId: string) => {
+    const empresa = empresas.find(e => e.id === empresaId);
+    return empresa?.nomeFantasia || empresa?.nome || 'Empresa não encontrada';
+  };
+
+  const filteredClientes = useMemo(() => {
+    return clientes.filter(cliente => {
+      const matchCodigo = (cliente.codigo || '').toLowerCase().includes(filterCodigo.toLowerCase());
+      const matchNome = (cliente.nome || '').toLowerCase().includes(filterNome.toLowerCase());
+      return matchCodigo && matchNome;
+    });
+  }, [clientes, filterCodigo, filterNome]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,7 +146,19 @@ export default function Clientes() {
       }
 
       const payload = {
-        ...formData,
+        codigo: formData.codigo,
+        nome: formData.nome,
+        endereco: formData.endereco,
+        ...(formData.numero ? { numero: formData.numero } : {}),
+        ...(formData.bairro ? { bairro: formData.bairro } : {}),
+        ...(formData.cidade ? { cidade: formData.cidade } : {}),
+        ...(formData.estado ? { estado: formData.estado } : {}),
+        ...(formData.cep ? { cep: formData.cep } : {}),
+        telefone1: formData.telefone1,
+        ...(formData.telefone2 ? { telefone2: formData.telefone2 } : {}),
+        ...(formData.cpf ? { cpf: formData.cpf } : {}),
+        ...(formData.numeroTitulos ? { numeroTitulos: formData.numeroTitulos } : {}),
+        valor_debito: formData.valor_debito,
         empresaId: selectedEmpresa.id,
         uid: currentUser.uid
       };
@@ -132,8 +192,15 @@ export default function Clientes() {
       codigo: '',
       nome: '',
       endereco: '',
+      numero: '',
+      bairro: '',
+      cidade: '',
+      estado: '',
+      cep: '',
       telefone1: '',
       telefone2: '',
+      cpf: '',
+      numeroTitulos: '',
       valor_debito: 0,
     });
   };
@@ -178,6 +245,19 @@ export default function Clientes() {
         )}
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+        <Input
+          placeholder="Buscar por Código"
+          value={filterCodigo}
+          onChange={(e) => setFilterCodigo(e.target.value)}
+        />
+        <Input
+          placeholder="Buscar por Nome"
+          value={filterNome}
+          onChange={(e) => setFilterNome(e.target.value)}
+        />
+      </div>
+
       <Card>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -192,11 +272,11 @@ export default function Clientes() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {clientes.map((cliente) => (
+              {filteredClientes.map((cliente) => (
                 <tr key={cliente.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cliente.codigo}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{cliente.nome}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{selectedEmpresa?.nome}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{getEmpresaNome(cliente.empresaId)}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cliente.telefone1}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cliente.valor_debito)}
@@ -215,12 +295,19 @@ export default function Clientes() {
                           onClick={() => {
                             setEditingCliente(cliente);
                             setFormData({
-                              codigo: cliente.codigo,
-                              nome: cliente.nome,
-                              endereco: cliente.endereco,
-                              telefone1: cliente.telefone1,
+                              codigo: cliente.codigo || '',
+                              nome: cliente.nome || '',
+                              endereco: cliente.endereco || '',
+                              numero: cliente.numero || '',
+                              bairro: cliente.bairro || '',
+                              cidade: cliente.cidade || '',
+                              estado: cliente.estado || '',
+                              cep: cliente.cep || '',
+                              telefone1: cliente.telefone1 || '',
                               telefone2: cliente.telefone2 || '',
-                              valor_debito: cliente.valor_debito,
+                              cpf: cliente.cpf || '',
+                              numeroTitulos: cliente.numeroTitulos || '',
+                              valor_debito: cliente.valor_debito || 0,
                             });
                             setIsModalOpen(true);
                           }}
@@ -241,10 +328,10 @@ export default function Clientes() {
                   </td>
                 </tr>
               ))}
-              {clientes.length === 0 && (
+              {filteredClientes.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">
-                    Nenhum cliente cadastrado.
+                    Nenhum cliente encontrado.
                   </td>
                 </tr>
               )}
@@ -282,6 +369,14 @@ export default function Clientes() {
                     onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
                     required
                   />
+
+                  <Input
+                    label="CPF (Opcional)"
+                    type="text"
+                    placeholder="000.000.000-00"
+                    value={formData.cpf}
+                    onChange={(e) => setFormData({ ...formData, cpf: e.target.value })}
+                  />
                   
                   <div className="md:col-span-2">
                     <Input
@@ -293,12 +388,45 @@ export default function Clientes() {
                   </div>
 
                   <div className="md:col-span-2">
-                    <Input
-                      label="Endereço"
-                      value={formData.endereco}
-                      onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
-                      required
-                    />
+                    <h4 className="text-sm font-medium text-gray-900 border-b pb-2 mb-2">Localização</h4>
+                  </div>
+                  
+                  <Input
+                    label="CEP"
+                    value={formData.cep}
+                    onChange={(e) => setFormData({ ...formData, cep: e.target.value })}
+                  />
+                  <Input
+                    label="Endereço"
+                    value={formData.endereco}
+                    onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
+                    required
+                  />
+
+                  <Input
+                    label="Número"
+                    value={formData.numero}
+                    onChange={(e) => setFormData({ ...formData, numero: e.target.value })}
+                  />
+                  <Input
+                    label="Bairro"
+                    value={formData.bairro}
+                    onChange={(e) => setFormData({ ...formData, bairro: e.target.value })}
+                  />
+
+                  <Input
+                    label="Cidade"
+                    value={formData.cidade}
+                    onChange={(e) => setFormData({ ...formData, cidade: e.target.value })}
+                  />
+                  <Input
+                    label="Estado"
+                    value={formData.estado}
+                    onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
+                  />
+
+                  <div className="md:col-span-2 mt-4">
+                    <h4 className="text-sm font-medium text-gray-900 border-b pb-2 mb-2">Contato e Financeiro</h4>
                   </div>
 
                   <Input
@@ -313,6 +441,11 @@ export default function Clientes() {
                     onChange={(e) => setFormData({ ...formData, telefone2: e.target.value })}
                   />
 
+                  <Input
+                    label="Nº dos Títulos (Ex: 1010/2255/8877)"
+                    value={formData.numeroTitulos}
+                    onChange={(e) => setFormData({ ...formData, numeroTitulos: e.target.value })}
+                  />
                   <Input
                     label="Valor do Débito (R$)"
                     type="number"

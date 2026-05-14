@@ -10,8 +10,11 @@ import { useNavigate } from 'react-router-dom';
 
 interface Empresa {
   id: string;
-  nome: string;
+  nome: string; // Legado
+  nomeFantasia?: string;
+  cnpj?: string;
   ativo: boolean;
+  cobradorId?: string;
 }
 
 export default function SelecaoEmpresa() {
@@ -29,10 +32,15 @@ export default function SelecaoEmpresa() {
 
     const fetchEmpresas = async () => {
       try {
-        // Por enquanto, listamos todas as empresas ativas.
-        // Se houver uma regra de negócio específica de mapeamento cobrador -> empresa,
-        // ela deve ser aplicada aqui.
-        const q = query(collection(db, 'empresas'), where('ativo', '==', true));
+        let q = query(collection(db, 'empresas'), where('ativo', '==', true));
+        
+        if (appUser?.role === 'COBRADOR') {
+          q = query(collection(db, 'empresas'), 
+            where('ativo', '==', true),
+            where('cobradorId', '==', appUser.uid)
+          );
+        }
+
         const snapshot = await getDocs(q);
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Empresa));
         setEmpresas(data);
@@ -96,8 +104,16 @@ export default function SelecaoEmpresa() {
                     <Building2 className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="font-medium text-gray-900">{empresa.nome}</h3>
-                    <p className="text-xs text-gray-500">Empresa Ativa</p>
+                    <h3 className="font-medium text-gray-900">
+                      {empresa.nomeFantasia || empresa.nome || "Empresa sem nome"}
+                    </h3>
+                    {empresa.cnpj ? (
+                      <p className="text-xs text-gray-500">
+                        CNPJ: {empresa.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5")}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500">Empresa vinculada</p>
+                    )}
                   </div>
                 </div>
                 <ArrowRight className="w-5 h-5 text-gray-300 group-hover:text-blue-600 transition-colors" />

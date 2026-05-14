@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, OperationType } from '../contexts/AuthContext';
 import { useEmpresa } from '../contexts/EmpresaContext';
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -12,6 +12,7 @@ interface Parcela {
   negociacao_id: string;
   empresaId: string;
   uid?: string;
+  numeroTitulo?: string;
   numero_parcela: number;
   valor: number;
   status: 'PENDENTE' | 'PAGO' | 'ATRASADO';
@@ -33,7 +34,7 @@ interface Cliente {
 }
 
 export default function Parcelas() {
-  const { appUser, currentUser } = useAuth();
+  const { appUser, currentUser, handlePermissionError } = useAuth();
   const { selectedEmpresa } = useEmpresa();
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   const [negociacoes, setNegociacoes] = useState<Negociacao[]>([]);
@@ -98,6 +99,8 @@ export default function Parcelas() {
       });
 
       setParcelas(updatedParcelas);
+    }, (error) => {
+      handlePermissionError(error, OperationType.LIST, 'parcelas');
     });
 
     return () => {
@@ -203,7 +206,7 @@ export default function Parcelas() {
                       {clienteInfo.codigo ? `${clienteInfo.codigo} - ` : ''}{clienteInfo.nome}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {parcela.numero_parcela}
+                      {parcela.numeroTitulo ? `${parcela.numeroTitulo}-${parcela.numero_parcela}` : parcela.numero_parcela}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parcela.valor)}

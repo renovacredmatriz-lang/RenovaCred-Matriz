@@ -1,15 +1,52 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { CheckCircle2, ShieldCheck, TrendingUp } from 'lucide-react';
+import { CheckCircle2, ShieldCheck, TrendingUp, Lock, User } from 'lucide-react';
 
 export default function Login() {
-  const { currentUser, loginWithGoogle } = useAuth();
+  const { currentUser, appUser, loginWithCredentials, changePassword, authError, isCheckingAuth, requirePasswordChange } = useAuth();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [localError, setLocalError] = useState('');
 
-  if (currentUser) {
+  if (currentUser && !requirePasswordChange) {
     return <Navigate to="/" />;
   }
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLocalError('');
+    if (!username || !password) {
+      setLocalError('Preencha todos os campos.');
+      return;
+    }
+    await loginWithCredentials(username, password);
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLocalError('');
+    if (newPassword.length < 6) {
+      setLocalError('A nova senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setLocalError('As senhas não coincidem.');
+      return;
+    }
+    try {
+      await changePassword(newPassword);
+    } catch (error: any) {
+      // O AuthContext já define o authError, então só definimos localError 
+      // se o authError não estiver disponível ou para erros genéricos
+      if (!authError) {
+        setLocalError('Erro ao processar a alteração de senha.');
+      }
+    }
+  };
 
   return (
     <div className="min-h-screen flex bg-gray-50">
@@ -39,19 +76,113 @@ export default function Login() {
           </div>
 
           <div className="mt-10">
-            <button
-              onClick={loginWithGoogle}
-              className="w-full flex items-center justify-center py-4 px-4 border border-transparent rounded-xl shadow-md text-base font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-200 ease-in-out transform hover:-translate-y-0.5"
-            >
-              <div className="bg-white p-1 rounded-full mr-3">
-                <img 
-                  className="h-5 w-5" 
-                  src="https://www.svgrepo.com/show/475656/google-color.svg" 
-                  alt="Google logo" 
-                />
+            {(authError || localError) && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start">
+                <ShieldCheck className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-red-700 font-medium">{authError || localError}</p>
               </div>
-              Entrar com Google
-            </button>
+            )}
+
+            {requirePasswordChange ? (
+              <form onSubmit={handleChangePassword} className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Defina sua nova senha</h3>
+                  <p className="text-sm text-gray-500 mb-6">Como este é o seu primeiro acesso, você precisa definir uma nova senha segura.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Nova Senha</label>
+                  <div className="mt-1 relative rounded-md shadow-sm">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Lock className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md h-12"
+                      placeholder="Mínimo 6 caracteres"
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Confirmar Nova Senha</label>
+                  <div className="mt-1 relative rounded-md shadow-sm">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Lock className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md h-12"
+                      placeholder="Confirme a senha"
+                      required
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={isCheckingAuth}
+                  className={`w-full flex items-center justify-center py-4 px-4 border border-transparent rounded-xl shadow-md text-base font-medium text-white transition-all duration-200 ease-in-out transform ${
+                    isCheckingAuth 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-blue-600 hover:bg-blue-700 hover:-translate-y-0.5'
+                  }`}
+                >
+                  {isCheckingAuth ? 'Salvando...' : 'Salvar Nova Senha'}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleLogin} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Usuário</label>
+                  <div className="mt-1 relative rounded-md shadow-sm">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <User className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md h-12"
+                      placeholder="ex: admin"
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Senha</label>
+                  <div className="mt-1 relative rounded-md shadow-sm">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Lock className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md h-12"
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={isCheckingAuth}
+                  className={`w-full flex items-center justify-center py-4 px-4 border border-transparent rounded-xl shadow-md text-base font-medium text-white transition-all duration-200 ease-in-out transform ${
+                    isCheckingAuth 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-blue-600 hover:bg-blue-700 hover:-translate-y-0.5'
+                  }`}
+                >
+                  {isCheckingAuth ? (
+                    <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  ) : null}
+                  {isCheckingAuth ? 'Entrando...' : 'Entrar'}
+                </button>
+              </form>
+            )}
             
             <div className="mt-6 flex items-center justify-center text-sm text-gray-500">
               <ShieldCheck className="w-4 h-4 mr-1.5 text-gray-400" />

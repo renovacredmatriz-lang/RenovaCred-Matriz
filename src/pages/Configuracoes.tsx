@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { doc, updateDoc, collection, getDocs, query, where, writeBatch, limit } from 'firebase/firestore';
+import { doc, updateDoc, collection, getDocs, query, where, writeBatch, limit, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -11,12 +11,57 @@ export default function Configuracoes() {
   const { appUser } = useAuth();
   const [fotoUrl, setFotoUrl] = useState(appUser?.foto_perfil || '');
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingGlobals, setIsSavingGlobals] = useState(false);
+
+  const [comissaoMaster, setComissaoMaster] = useState<number>(10);
+  const [comissaoSocio, setComissaoSocio] = useState<number>(5);
 
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [resetProgress, setResetProgress] = useState('');
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
+
+  const [isMigratingOldData, setIsMigratingOldData] = useState(false);
+  const [migrateProgress, setMigrateProgress] = useState('');
+
+  useEffect(() => {
+    if (appUser?.role !== 'MASTER') return;
+    const fetchGlobalSettings = async () => {
+      try {
+        const configDoc = await getDoc(doc(db, 'auxData', 'configGlobal'));
+        if (configDoc.exists()) {
+          const data = configDoc.data();
+          if (data.comissao_master !== undefined) setComissaoMaster(data.comissao_master);
+          if (data.comissao_socio !== undefined) setComissaoSocio(data.comissao_socio);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar configurações globais:", error);
+      }
+    };
+    fetchGlobalSettings();
+  }, [appUser]);
+
+  const handleSaveGlobalSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (appUser?.role !== 'MASTER') return;
+    
+    setIsSavingGlobals(true);
+    try {
+      await setDoc(doc(db, 'auxData', 'configGlobal'), {
+        comissao_master: Number(comissaoMaster),
+        comissao_socio: Number(comissaoSocio),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      
+      alert('Configurações salvas com sucesso!');
+    } catch (error) {
+      console.error("Erro ao salvar configurações:", error);
+      alert('Erro ao salvar as configurações. Verifique sua conexão e permissões.');
+    } finally {
+      setIsSavingGlobals(false);
+    }
+  };
 
   const handleResetBaseDados = async () => {
     if (confirmText !== 'CONFIRMAR') {
@@ -104,6 +149,98 @@ export default function Configuracoes() {
       alert('Erro ao recalcular débitos. Verifique o console para detalhes.');
     } finally {
       setIsRecalculating(false);
+    }
+  };
+
+  const handleMigrateData = async () => {
+    if (!window.confirm("Isso irá atualizar documentos antigos nas coleções de movimentações, negociações e parcelas para incluir o cobrador_id onde falta. Continuar?")) return;
+    
+    setIsMigratingOldData(true);
+    setMigrateProgress('Carregando empresas...');
+    try {
+      const empSnap = await getDocs(collection(db, 'empresas'));
+      const empresaToCobrador: Record<string, string> = {};
+      empSnap.docs.forEach(d => {
+        empresaToCobrador[d.id] = d.data().cobradorId || '';
+      });
+
+      setMigrateProgress('Buscando negociações...');
+      const negSnap = await getDocs(collection(db, 'negociacoes'));
+      const negociacaoToCobrador: Record<string, string> = {};
+      
+      let batch = writeBatch(db);
+      let opCount = 0;
+      let totalUpdated = 0;
+
+      const commitBatch = async () => {
+        if (opCount > 0) {
+          await batch.commit();
+          totalUpdated += opCount;
+          batch = writeBatch(db);
+          opCount = 0;
+          await new Promise(r => setTimeout(r, 100)); // Rate limit 
+        }
+      };
+
+      for (const d of negSnap.docs) {
+        const data = d.data();
+        let cid = data.cobrador_id;
+        
+        if (!cid && data.empresaId) {
+          const expectedCid = empresaToCobrador[data.empresaId];
+          if (expectedCid) {
+            batch.update(d.ref, { cobrador_id: expectedCid });
+            opCount++;
+            cid = expectedCid;
+          }
+        }
+        
+        if (cid) {
+          negociacaoToCobrador[d.id] = cid;
+        }
+
+        if (opCount >= 400) await commitBatch();
+      }
+      await commitBatch();
+
+      setMigrateProgress('Filtrando e atualizando movimentações...');
+      const movSnap = await getDocs(collection(db, 'movimentacoes'));
+      for (const d of movSnap.docs) {
+        const data = d.data();
+        if (!data.cobrador_id && data.empresaId) {
+          const expectedCid = empresaToCobrador[data.empresaId];
+          if (expectedCid) {
+            batch.update(d.ref, { cobrador_id: expectedCid });
+            opCount++;
+          }
+        }
+        if (opCount >= 400) await commitBatch();
+      }
+      await commitBatch();
+
+      setMigrateProgress('Filtrando e atualizando parcelas...');
+      const parSnap = await getDocs(collection(db, 'parcelas'));
+      for (const d of parSnap.docs) {
+        const data = d.data();
+        if (!data.cobrador_id && data.negociacao_id) {
+          const expectedCid = negociacaoToCobrador[data.negociacao_id];
+          if (expectedCid) {
+            batch.update(d.ref, { cobrador_id: expectedCid });
+            opCount++;
+          }
+        }
+        if (opCount >= 400) await commitBatch();
+      }
+      await commitBatch();
+
+      alert(`Migração concluída com sucesso! Documentos atualizados: ${totalUpdated}`);
+      console.log(`Migração: ${totalUpdated} documentos foram atualizados.`);
+    } catch (error) {
+      console.error("Erro na migração:", error);
+      alert("Erro na migração. Verifique o console.");
+    } finally {
+      setIsMigratingOldData(false);
+      setMigrateProgress('');
     }
   };
 
@@ -195,11 +332,32 @@ export default function Configuracoes() {
                     variant="secondary" 
                     className="bg-white border-red-200 text-red-700 hover:bg-red-50"
                     onClick={handleRecalcularDebitos}
-                    disabled={isRecalculating || isResetting}
+                    disabled={isRecalculating || isResetting || isMigratingOldData}
                   >
                     <RefreshCw className={`w-4 h-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
                     {isRecalculating ? 'Processando...' : 'Recalcular Todos os Débitos'}
                   </Button>
+                </div>
+
+                <div className="bg-orange-50 border border-orange-100 p-4 rounded-lg">
+                  <h4 className="text-sm font-medium text-orange-800 mb-1">Migração de Dados (Cobrador)</h4>
+                  <p className="text-xs text-orange-600 mb-4">
+                    Atualiza documentos antigos (negociacões, movimentações e parcelas) para incluir o campo <code className="bg-orange-100 px-1 rounded">cobrador_id</code> usando o vínculo atual da empresa.
+                  </p>
+                  <Button 
+                    variant="secondary" 
+                    className="bg-white border-orange-200 text-orange-700 hover:bg-orange-50"
+                    onClick={handleMigrateData}
+                    disabled={isRecalculating || isResetting || isMigratingOldData}
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-2 ${isMigratingOldData ? 'animate-spin' : ''}`} />
+                    {isMigratingOldData ? 'Migrando...' : 'Corrigir Dados Antigos (cobrador_id)'}
+                  </Button>
+                  {isMigratingOldData && (
+                    <p className="mt-2 text-xs font-medium text-orange-800 animate-pulse">
+                      {migrateProgress}
+                    </p>
+                  )}
                 </div>
 
                 <div className="bg-red-100 border border-red-200 p-4 rounded-lg">
@@ -213,7 +371,7 @@ export default function Configuracoes() {
                   <Button 
                     variant="danger" 
                     onClick={() => setIsResetModalOpen(true)}
-                    disabled={isResetting || isRecalculating}
+                    disabled={isResetting || isRecalculating || isMigratingOldData}
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
                     Resetar Base de Dados
@@ -236,20 +394,28 @@ export default function Configuracoes() {
             <p className="text-sm text-gray-500 mb-4">
               Configurações de comissões globais e parâmetros do sistema.
             </p>
-            <form className="space-y-4 max-w-md" onSubmit={(e) => { e.preventDefault(); alert('Funcionalidade em desenvolvimento.'); }}>
+            <form className="space-y-4 max-w-md" onSubmit={handleSaveGlobalSettings}>
               <Input
                 label="Comissão Master Padrão (%)"
                 type="number"
-                defaultValue={10}
+                value={comissaoMaster}
+                onChange={(e) => setComissaoMaster(Number(e.target.value))}
+                min="0"
+                max="100"
+                step="0.01"
               />
               <Input
                 label="Comissão Sócio (%)"
                 type="number"
-                defaultValue={5}
+                value={comissaoSocio}
+                onChange={(e) => setComissaoSocio(Number(e.target.value))}
+                min="0"
+                max="100"
+                step="0.01"
               />
               <div className="pt-4">
-                <Button type="submit" variant="secondary">
-                  Salvar Configurações Globais
+                <Button type="submit" variant="secondary" disabled={isSavingGlobals}>
+                  {isSavingGlobals ? 'Salvando...' : 'Salvar Configurações Globais'}
                 </Button>
               </div>
             </form>

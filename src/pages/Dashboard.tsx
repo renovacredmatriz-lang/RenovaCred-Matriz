@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, OperationType } from '../contexts/AuthContext';
 import { useEmpresa } from '../contexts/EmpresaContext';
 import { Card, CardContent } from '../components/ui/Card';
 import { DollarSign, Calendar, TrendingUp } from 'lucide-react';
-import { collection, query, getDocs, where } from 'firebase/firestore';
+import { collection, query, getDocs, where, getDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { getAgendamentoStatusLogico, normalizeDate } from '../utils/agendamentoUtils';
 
 export default function Dashboard() {
-  const { appUser } = useAuth();
+  const { appUser, handlePermissionError } = useAuth();
   const { selectedEmpresa } = useEmpresa();
   const [stats, setStats] = useState({
     totalNegociado: 0,
@@ -17,12 +18,14 @@ export default function Dashboard() {
     totalComissaoCobradores: 0,
     comissaoMaster: 0,
     comissaoSocio: 0,
+    percentualMaster: 10,
+    percentualSocio: 5,
     performancePorCobrador: [] as { id: string; nome: string; total: number; comissao: number }[],
     performancePorEmpresa: [] as { id: string; nome: string; total: number }[],
   });
   
   const [cobradores, setCobradores] = useState<{ id: string; nome: string; comissao_percentual: number }[]>([]);
-  const [empresas, setEmpresas] = useState<{ id: string; nome: string }[]>([]);
+  const [empresas, setEmpresas] = useState<{ id: string; nome: string; nomeFantasia?: string }[]>([]);
   
   const [filtros, setFiltros] = useState({
     dataInicio: '',
@@ -30,82 +33,129 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
+    if (!appUser) return;
+
     const fetchAuxData = async () => {
-      const cobSnapshot = await getDocs(query(collection(db, 'users'), where('role', '==', 'COBRADOR')));
-      setCobradores(cobSnapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        nome: doc.data().nome,
-        comissao_percentual: doc.data().comissao_percentual || 0
-      })));
-      
-      const empSnapshot = await getDocs(collection(db, 'empresas'));
-      setEmpresas(empSnapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome })));
+      try {
+        if (appUser.role === 'MASTER') {
+          const cobSnapshot = await getDocs(query(collection(db, 'users'), where('role', '==', 'COBRADOR')));
+          setCobradores(cobSnapshot.docs.map(doc => ({ 
+            id: doc.id, 
+            nome: doc.data().nome,
+            comissao_percentual: doc.data().comissao_percentual || 0
+          })));
+        }
+        
+        let qEmp = query(collection(db, 'empresas'));
+        if (appUser.role === 'COBRADOR') {
+          qEmp = query(collection(db, 'empresas'), where('cobradorId', '==', appUser.uid));
+        }
+        const empSnapshot = await getDocs(qEmp);
+        setEmpresas(empSnapshot.docs.map(doc => ({ 
+          id: doc.id, 
+          nome: doc.data().nome,
+          nomeFantasia: doc.data().nomeFantasia 
+        })));
+      } catch (error) {
+        handlePermissionError(error, OperationType.LIST, 'auxData');
+      }
     };
     fetchAuxData();
-  }, []);
+  }, [appUser, handlePermissionError]);
 
   useEffect(() => {
     if (!appUser) return;
 
     const fetchStats = async () => {
       try {
-        // Fetch Negociacoes
-        let qNegociacoes = query(collection(db, 'negociacoes'));
-        
-        const filters = [];
+        // 1. Fetch Movimentacoes (PAGAMENTO) for Total Recebido
+        let qMov = query(collection(db, 'movimentacoes'));
         if (appUser.role === 'COBRADOR') {
-          filters.push(where('cobrador_id', '==', appUser.id));
+          qMov = query(qMov, where('cobrador_id', '==', appUser.id));
         }
         if (selectedEmpresa && appUser.role !== 'MASTER') {
-          filters.push(where('empresaId', '==', selectedEmpresa.id));
+          qMov = query(qMov, where('empresaId', '==', selectedEmpresa.id));
         }
+        const movSnapshot = await getDocs(qMov);
+        const allDocs = [...movSnapshot.docs];
 
-        if (filters.length > 0) {
-          qNegociacoes = query(collection(db, 'negociacoes'), ...filters);
+        // Fetch Negociacoes to act as Source of Truth
+        let qNeg = query(collection(db, 'negociacoes'));
+        if (selectedEmpresa && appUser.role !== 'MASTER') {
+          qNeg = query(qNeg, where('empresaId', '==', selectedEmpresa.id));
         }
+        const negSnapshot = await getDocs(qNeg);
+        const negStatusMap: Record<string, string> = {};
+        negSnapshot.docs.forEach(d => {
+          negStatusMap[d.id] = d.data().status;
+        });
 
-        const negSnapshot = await getDocs(qNegociacoes);
-        
-        let totalNegociado = 0;
         let totalRecebido = 0;
         const cobradorMap: Record<string, number> = {};
         const empresaMap: Record<string, number> = {};
 
-        negSnapshot.docs.forEach(doc => {
+        allDocs.forEach(doc => {
           const data = doc.data();
           
+          if (!['PAGAMENTO', 'ENTRADA', 'QUITACAO', 'RESGATE', 'ESTORNO'].includes(data.tipo)) return;
+          
+          // SOURCE OF TRUTH CHECK
+          // We check the parent negotiation status. If missing (old data), fallback to mov.negociacao_status.
+          const currentStatus = data.negociacao_id ? negStatusMap[data.negociacao_id] : data.negociacao_status;
+          if (currentStatus === 'ESTORNADO') return;
+
           // Apply date filters
+          const rawDate = new Date(data.data);
+          const dataMov = new Date(
+            rawDate.getFullYear(),
+            rawDate.getMonth(),
+            rawDate.getDate(),
+            12, 0, 0
+          );
+
           if (filtros.dataInicio) {
-            const dInicio = new Date(filtros.dataInicio + 'T00:00:00Z');
-            if (new Date(data.createdAt) < dInicio) return;
+            const [y1, m1, d1] = filtros.dataInicio.split('-');
+            const dataInicio = new Date(Number(y1), Number(m1) - 1, Number(d1));
+            dataInicio.setHours(0, 0, 0, 0);
+            if (dataMov.getTime() < dataInicio.getTime()) return;
           }
           if (filtros.dataFim) {
-            const dFim = new Date(filtros.dataFim + 'T23:59:59.999Z');
-            if (new Date(data.createdAt) > dFim) return;
+            const [y2, m2, d2] = filtros.dataFim.split('-');
+            const dataFim = new Date(Number(y2), Number(m2) - 1, Number(d2));
+            dataFim.setHours(23, 59, 59, 999);
+            if (dataMov.getTime() > dataFim.getTime()) return;
           }
 
-          if (data.status === 'ESTORNO') return;
-
-          let valorNegociado = 0;
-          let valorRecebido = 0;
-
-          if (data.tipo === 'QUITACAO' || data.tipo === 'PARCELA' || data.tipo === 'RESGATE') {
-            valorNegociado = data.valor;
-            valorRecebido = data.valor;
-          } else if (data.tipo === 'PARCELAMENTO') {
-            valorNegociado = data.valor;
-            valorRecebido = (data.valor_entrada || 0);
-          }
-
-          totalNegociado += valorNegociado;
-          totalRecebido += valorRecebido;
+          const valor = Number(data.valor) || 0;
+          const isEstorno = data.tipo === 'ESTORNO';
+          const valorReal = isEstorno ? -valor : valor;
+          
+          totalRecebido += valorReal;
 
           if (appUser.role === 'MASTER') {
-            cobradorMap[data.cobrador_id] = (cobradorMap[data.cobrador_id] || 0) + valorRecebido;
-            empresaMap[data.empresaId] = (empresaMap[data.empresaId] || 0) + valorRecebido;
+            const cId = data.cobrador_id || data.uid;
+            if (cId) cobradorMap[cId] = (cobradorMap[cId] || 0) + valorReal;
+            if (data.empresaId) empresaMap[data.empresaId] = (empresaMap[data.empresaId] || 0) + valorReal;
           }
         });
 
+        // 2. Fetch Parcelas (PENDENTE/ATRASADO) for Total a Receber
+        let qPar = query(collection(db, 'parcelas'), where('status', 'in', ['PENDENTE', 'ATRASADO']));
+        if (appUser.role === 'COBRADOR') {
+          qPar = query(qPar, where('cobrador_id', '==', appUser.id));
+        }
+        if (selectedEmpresa && appUser.role !== 'MASTER') {
+          qPar = query(qPar, where('empresaId', '==', selectedEmpresa.id));
+        }
+        const parSnapshot = await getDocs(qPar);
+        let totalAReceber = 0;
+        parSnapshot.docs.forEach(doc => {
+          totalAReceber += (Number(doc.data().valor) || 0);
+        });
+
+        const totalNegociado = totalRecebido + totalAReceber;
+
+        // 3. Performance and Commissions
         const performancePorCobrador = Object.entries(cobradorMap)
           .map(([id, total]) => {
             const cobrador = cobradores.find(c => c.id === id);
@@ -119,21 +169,41 @@ export default function Dashboard() {
           })
           .sort((a, b) => b.total - a.total);
 
-        const totalComissaoCobradores = performancePorCobrador.reduce((acc, curr) => acc + curr.comissao, 0);
-        const comissaoMaster = totalRecebido * 0.10; // 10% padrão
-        const comissaoSocio = totalRecebido * 0.05;  // 5% padrão
+        const totalComissaoCobradores = appUser.role === 'MASTER' 
+          ? performancePorCobrador.reduce((acc, curr) => acc + curr.comissao, 0)
+          : totalRecebido * ((appUser.comissao_percentual || 0) / 100);
+
+        // Fetch Global Settings for Commissions
+        let pMaster = 10;
+        let pSocio = 5;
+        try {
+          const configDoc = await getDoc(doc(db, 'auxData', 'configGlobal'));
+          if (configDoc.exists()) {
+            const data = configDoc.data();
+            if (data.comissao_master !== undefined) pMaster = data.comissao_master;
+            if (data.comissao_socio !== undefined) pSocio = data.comissao_socio;
+          }
+        } catch (e) {
+          console.error("Error reading global config:", e);
+        }
+
+        const comissaoMaster = totalRecebido * (pMaster / 100);
+        const comissaoSocio = totalRecebido * (pSocio / 100);
 
         const performancePorEmpresa = Object.entries(empresaMap)
-          .map(([id, total]) => ({ id, nome: empresas.find(e => e.id === id)?.nome || 'Desconhecida', total }))
+          .map(([id, total]) => {
+            const emp = empresas.find(e => e.id === id);
+            const nomeExibicao = emp ? (emp.nomeFantasia || emp.nome || "Empresa sem nome") : "Desconhecida";
+            return { id, nome: nomeExibicao, total };
+          })
           .sort((a, b) => b.total - a.total);
 
-        const totalAReceber = totalNegociado - totalRecebido;
-
-        // Fetch Agendamentos Hoje
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+        // 4. Fetch Agendamentos Hoje
+        const hojeInicio = new Date();
+        hojeInicio.setHours(0, 0, 0, 0);
+        
+        const hojeFim = new Date();
+        hojeFim.setHours(23, 59, 59, 999);
 
         let qAgendamentos = query(collection(db, 'agendamentos'));
         
@@ -152,10 +222,15 @@ export default function Dashboard() {
         const agendSnapshot = await getDocs(qAgendamentos);
         
         let agendamentosHoje = 0;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
         agendSnapshot.docs.forEach(doc => {
           const data = doc.data();
-          const agendDate = new Date(data.data_agendamento);
-          if (agendDate >= today && agendDate < tomorrow && data.status === 'PENDENTE') {
+          const statusLogico = getAgendamentoStatusLogico(data.status, data.data_agendamento);
+          const agendDate = normalizeDate(data.data_agendamento);
+          
+          if (agendDate && statusLogico === 'PENDENTE' && agendDate.getTime() === today.getTime()) {
             agendamentosHoje++;
           }
         });
@@ -168,16 +243,18 @@ export default function Dashboard() {
           totalComissaoCobradores,
           comissaoMaster,
           comissaoSocio,
+          percentualMaster: pMaster,
+          percentualSocio: pSocio,
           performancePorCobrador,
           performancePorEmpresa
         });
       } catch (error) {
-        console.error("Error fetching stats:", error);
+        handlePermissionError(error, OperationType.LIST, 'stats');
       }
     };
 
     fetchStats();
-  }, [appUser, filtros, selectedEmpresa, cobradores, empresas]);
+  }, [appUser, filtros, selectedEmpresa, cobradores, empresas, handlePermissionError]);
 
   return (
     <div className="space-y-6">
@@ -290,7 +367,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {appUser?.role === 'MASTER' && (
+      {appUser?.role === 'MASTER' ? (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <Card className="bg-blue-50 border-blue-200">
             <CardContent className="p-6">
@@ -300,7 +377,7 @@ export default function Dashboard() {
                 </div>
                 <div className="ml-5 w-0 flex-1">
                   <dl>
-                    <dt className="text-sm font-medium text-blue-700 truncate">Comissão Master (10%)</dt>
+                    <dt className="text-sm font-medium text-blue-700 truncate">Comissão Master ({stats.percentualMaster}%)</dt>
                     <dd className="text-2xl font-bold text-blue-900">
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.comissaoMaster)}
                     </dd>
@@ -318,7 +395,7 @@ export default function Dashboard() {
                 </div>
                 <div className="ml-5 w-0 flex-1">
                   <dl>
-                    <dt className="text-sm font-medium text-indigo-700 truncate">Comissão Sócio (5%)</dt>
+                    <dt className="text-sm font-medium text-indigo-700 truncate">Comissão Sócio ({stats.percentualSocio}%)</dt>
                     <dd className="text-2xl font-bold text-indigo-900">
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.comissaoSocio)}
                     </dd>
@@ -337,6 +414,26 @@ export default function Dashboard() {
                 <div className="ml-5 w-0 flex-1">
                   <dl>
                     <dt className="text-sm font-medium text-teal-700 truncate">Total Comissões Cobradores</dt>
+                    <dd className="text-2xl font-bold text-teal-900">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.totalComissaoCobradores)}
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <Card className="bg-teal-50 border-teal-200">
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-teal-200 rounded-md p-3">
+                  <DollarSign className="h-6 w-6 text-teal-700" />
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-teal-700 truncate">Minha Comissão ({appUser?.comissao_percentual || 0}%)</dt>
                     <dd className="text-2xl font-bold text-teal-900">
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.totalComissaoCobradores)}
                     </dd>

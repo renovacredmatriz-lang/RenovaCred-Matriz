@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, query, where } from 'firebase/firestore';
-import { db } from '../firebase';
+import { useAuth, OperationType } from '../contexts/AuthContext';
+import { collection, onSnapshot, setDoc, updateDoc, doc, deleteDoc, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { db, secondaryAuth } from '../firebase';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -10,7 +11,7 @@ import { Plus, Edit2, Trash2, X } from 'lucide-react';
 interface Cobrador {
   id: string;
   nome: string;
-  email: string;
+  username: string;
   role: 'MASTER' | 'COBRADOR';
   ativo: boolean;
   comissao_percentual?: number;
@@ -18,13 +19,13 @@ interface Cobrador {
 }
 
 export default function Cobradores() {
-  const { appUser } = useAuth();
+  const { appUser, handlePermissionError } = useAuth();
   const [cobradores, setCobradores] = useState<Cobrador[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCobrador, setEditingCobrador] = useState<Cobrador | null>(null);
   const [formData, setFormData] = useState({ 
     nome: '', 
-    email: '', 
+    username: '', 
     comissao_percentual: 0,
     ativo: true 
   });
@@ -34,8 +35,12 @@ export default function Cobradores() {
 
     const q = query(collection(db, 'users'), where('role', '==', 'COBRADOR'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cobrador));
+      const data = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Cobrador))
+        .filter((c: any) => c.status !== 'DUPLICADO' && !c.isDeleted);
       setCobradores(data);
+    }, (error) => {
+      handlePermissionError(error, OperationType.LIST, 'users');
     });
 
     return () => unsubscribe();
@@ -43,26 +48,64 @@ export default function Cobradores() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const emailLower = formData.email.toLowerCase();
+    const usernameLower = formData.username.toLowerCase().trim();
+    const internalEmail = `${usernameLower}@app.renovacred.com`;
+    
     try {
+      // Check for duplicates in Firestore (including inactive/migrated to be safe)
+      const qDuplicate = query(collection(db, 'users'), where('username', '==', usernameLower));
+      const duplicateSnapshot = await getDocs(qDuplicate);
+      const isDuplicate = duplicateSnapshot.docs.some(
+        doc => doc.id !== editingCobrador?.id
+      );
+      
+      if (isDuplicate) {
+        alert('Este usuário já existe. Escolha outro username.');
+        return;
+      }
+
+      const batch = writeBatch(db);
+
       if (editingCobrador) {
-        await updateDoc(doc(db, 'users', editingCobrador.id), {
+        const userRef = doc(db, 'users', editingCobrador.id);
+        batch.update(userRef, {
           nome: formData.nome,
-          email: emailLower,
           comissao_percentual: formData.comissao_percentual,
           ativo: formData.ativo
         });
+        
+        await batch.commit();
       } else {
-        await addDoc(collection(db, 'users'), {
-          ...formData,
-          email: emailLower,
-          role: 'COBRADOR',
-          createdAt: new Date().toISOString()
-        });
+        try {
+          const userCredential = await createUserWithEmailAndPassword(secondaryAuth, internalEmail, '123456');
+          const uid = userCredential.user.uid;
+
+          await setDoc(doc(db, 'users', uid), {
+            uid: uid,
+            nome: formData.nome,
+            username: usernameLower,
+            email: internalEmail,
+            role: 'COBRADOR',
+            ativo: formData.ativo,
+            comissao_percentual: formData.comissao_percentual,
+            primeiroAcesso: true,
+            createdAt: new Date().toISOString()
+          });
+          
+          await secondaryAuth.signOut();
+        } catch (authError: any) {
+          if (authError.code === 'auth/email-already-in-use') {
+            alert('Este usuário já está cadastrado. Utilize outro username.');
+            return;
+          } else {
+            throw authError;
+          }
+        }
       }
+      
       setIsModalOpen(false);
       setEditingCobrador(null);
-      setFormData({ nome: '', email: '', comissao_percentual: 0, ativo: true });
+      setFormData({ nome: '', username: '', comissao_percentual: 0, ativo: true });
     } catch (error) {
       console.error("Error saving cobrador:", error);
       alert("Erro ao salvar cobrador.");
@@ -93,7 +136,7 @@ export default function Cobradores() {
         </div>
         <Button onClick={() => {
           setEditingCobrador(null);
-          setFormData({ nome: '', email: '', comissao_percentual: 0, ativo: true });
+          setFormData({ nome: '', username: '', comissao_percentual: 0, ativo: true });
           setIsModalOpen(true);
         }}>
           <Plus className="w-4 h-4 mr-2" />
@@ -107,7 +150,7 @@ export default function Cobradores() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Comissão (%)</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
@@ -117,7 +160,7 @@ export default function Cobradores() {
               {cobradores.map((cobrador) => (
                 <tr key={cobrador.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{cobrador.nome}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cobrador.email}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cobrador.username}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cobrador.comissao_percentual}%</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${cobrador.ativo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
@@ -130,7 +173,7 @@ export default function Cobradores() {
                         setEditingCobrador(cobrador);
                         setFormData({ 
                           nome: cobrador.nome, 
-                          email: cobrador.email, 
+                          username: cobrador.username || '', 
                           comissao_percentual: cobrador.comissao_percentual || 0,
                           ativo: cobrador.ativo 
                         });
@@ -182,10 +225,11 @@ export default function Cobradores() {
                   required
                 />
                 <Input
-                  label="Email (para login)"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  label="Username"
+                  type="text"
+                  value={formData.username}
+                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                  disabled={!!editingCobrador}
                   required
                 />
                 <Input
